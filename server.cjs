@@ -10,11 +10,14 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
+// ============================================================
+// ✅ CORS
+// ============================================================
 app.use((req, res, next) => {
   const allowedOrigin = req.headers.origin || '*';
   res.header('Access-Control-Allow-Origin', allowedOrigin);
   res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-sendly-key, x-admin-password, x-session-token');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-sendly-key, x-admin-password, x-session-token, x-api-key');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
   res.header('Access-Control-Allow-Credentials', 'false');
   if (req.method === 'OPTIONS') {
@@ -25,17 +28,28 @@ app.use((req, res, next) => {
 
 app.use(express.static(__dirname));
 
+// ============================================================
+// 📛 BRAND INFORMATION - UPDATED
+// ============================================================
 const BRAND = {
-  name: 'Push Notification Service',
-  short: 'PNS',
-  founder: 'Admin',
-  email: 'admin@pushservice.com',
-  website: 'https://pushservice.com'
+  name: 'Sendly Notification',
+  company: 'Henry Global Tech Industry',
+  short: 'HGT',
+  founder: 'Henry Kamsi Okwuabudike',
+  email: 'kamsih924@gmail.com',
+  website: 'https://hgt.com',
+  built_date: '2026-08-16',
+  powered_by: 'HGT'
 };
 
-console.log(`🏢 ${BRAND.name}`);
-console.log(`👤 Under Administration of ${BRAND.founder}`);
+console.log(`🏢 ${BRAND.name} | ${BRAND.company} (${BRAND.short})`);
+console.log(`👤 Owned by ${BRAND.founder}`);
+console.log(`📅 Built: ${BRAND.built_date}`);
+console.log(`⚡ Powered By ${BRAND.powered_by}`);
 
+// ============================================================
+// 1. AUTO-GENERATE VAPID KEYS
+// ============================================================
 if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
   const keys = webpush.generateVAPIDKeys();
   process.env.VAPID_PUBLIC_KEY = keys.publicKey;
@@ -49,6 +63,9 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
+// ============================================================
+// 2. TURSO DATABASE
+// ============================================================
 const db = {
   async execute(query) {
     let sql = "";
@@ -110,6 +127,9 @@ const db = {
   }
 };
 
+// ============================================================
+// 3. DATABASE INITIALIZATION
+// ============================================================
 async function initDB() {
   try {
     await db.execute(`
@@ -233,6 +253,64 @@ async function initDB() {
       )
     `);
 
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS webhook_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT,
+        url TEXT,
+        event TEXT,
+        status TEXT,
+        response TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS subscription_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT,
+        endpoint TEXT,
+        device_type TEXT,
+        device_name TEXT,
+        region TEXT,
+        action TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS api_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT,
+        endpoint TEXT,
+        method TEXT,
+        status TEXT,
+        response_code INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // NEW: Templates table
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key TEXT,
+        template_id TEXT UNIQUE,
+        name TEXT,
+        title TEXT,
+        message TEXT,
+        image_url TEXT,
+        icon_url TEXT,
+        button1_name TEXT,
+        button1_url TEXT,
+        button2_name TEXT,
+        button2_url TEXT,
+        custom_sound_url TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (api_key) REFERENCES projects(api_key)
+      )
+    `);
+
     try { await db.execute(`ALTER TABLE users ADD COLUMN dark_mode BOOLEAN DEFAULT 0`); } catch (e) {}
     try { await db.execute(`ALTER TABLE projects ADD COLUMN crack_signals INTEGER DEFAULT 0`); } catch (e) {}
     try { await db.execute(`ALTER TABLE projects ADD COLUMN crack_locked_until DATETIME`); } catch (e) {}
@@ -251,14 +329,54 @@ async function initDB() {
 }
 initDB();
 
+// ============================================================
+// 4. SERVE UI LANDING PAGE
+// ============================================================
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// ============================================================
+// 5. HEALTH CHECK (NEW)
+// ============================================================
+app.get('/health', (req, res) => {
+  res.json({
+    status: 200,
+    success: true,
+    message: 'Server is healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    brand: BRAND.name,
+    database: 'Turso Connected'
+  });
+});
+
+// ============================================================
+// 6. GET VAPID PUBLIC KEY
+// ============================================================
 app.get('/api/v1/vapid-key', (req, res) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
 });
 
+// ============================================================
+// 7. HELP
+// ============================================================
+app.get('/api/v1/help', (req, res) => {
+  res.json({
+    status: 200,
+    success: true,
+    message: 'Support contact information',
+    support: {
+      email: BRAND.email,
+      response_time: 'Within 24 hours',
+      hours: 'Monday - Friday, 9AM - 6PM WAT'
+    }
+  });
+});
+
+// ============================================================
+// 8. BRAND
+// ============================================================
 app.get('/api/v1/brand', (req, res) => {
   res.json({
     status: 200,
@@ -267,19 +385,9 @@ app.get('/api/v1/brand', (req, res) => {
   });
 });
 
-app.get('/api/v1/help', (req, res) => {
-  res.json({
-    status: 200,
-    success: true,
-    message: 'Support contact information',
-    support: {
-      email: 'support@pushservice.com',
-      response_time: 'Within 24 hours',
-      hours: 'Monday - Friday, 9AM - 6PM WAT'
-    }
-  });
-});
-
+// ============================================================
+// 9. PLANS
+// ============================================================
 app.get('/api/v1/plans', (req, res) => {
   res.json({
     status: 200,
@@ -296,6 +404,9 @@ app.get('/api/v1/plans', (req, res) => {
   });
 });
 
+// ============================================================
+// 10. GENERATE WEB PUSH CONFIG
+// ============================================================
 app.post('/api/v1/generate-web-push-config', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -313,9 +424,11 @@ app.post('/api/v1/generate-web-push-config', async (req, res) => {
       return res.json({ status: 701, success: false, message: 'No such API key' });
     }
 
+    const serverUrl = process.env.RENDER_URL || 'https://push-notification-server-5tx2.onrender.com';
+
     const configCode = `
-<!-- Push Notifications - Add this to your website HEAD -->
-<script src="https://push-notification-server.onrender.com/sdk.js" data-api-key="${apiKey}"></script>
+<!-- 🔔 Sendly Notification - Add this to your website HEAD -->
+<script src="${serverUrl}/sdk.js" data-api-key="${apiKey}"></script>
     `;
 
     res.json({
@@ -331,6 +444,9 @@ app.post('/api/v1/generate-web-push-config', async (req, res) => {
   }
 });
 
+// ============================================================
+// 11. USER REGISTER
+// ============================================================
 app.post('/api/v1/auth/register', async (req, res) => {
   const { name, email, password, traffic } = req.body;
 
@@ -373,6 +489,9 @@ app.post('/api/v1/auth/register', async (req, res) => {
   }
 });
 
+// ============================================================
+// 12. USER LOGIN
+// ============================================================
 app.post('/api/v1/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -419,6 +538,9 @@ app.post('/api/v1/auth/login', async (req, res) => {
   }
 });
 
+// ============================================================
+// 13. CREATE APP
+// ============================================================
 app.post('/api/v1/apps/create', async (req, res) => {
   const { app_name, app_url } = req.body;
   const sessionToken = req.headers['x-session-token'];
@@ -488,7 +610,7 @@ app.post('/api/v1/apps/create', async (req, res) => {
     }
 
     const rawKey = crypto.randomBytes(16).toString('hex');
-    const apiKey = `pns_live_${normalizedAppName}_${rawKey}`;
+    const apiKey = `sendly_live_${normalizedAppName}_${rawKey}`;
 
     await db.execute({
       sql: 'INSERT INTO projects (user_id, project_name, app_name, app_url, api_key, plan) VALUES (?, ?, ?, ?, ?, ?)',
@@ -519,6 +641,9 @@ app.post('/api/v1/apps/create', async (req, res) => {
   }
 });
 
+// ============================================================
+// 14. GET APP LIST
+// ============================================================
 app.get('/api/v1/apps/list', async (req, res) => {
   const sessionToken = req.headers['x-session-token'];
 
@@ -562,6 +687,9 @@ app.get('/api/v1/apps/list', async (req, res) => {
   }
 });
 
+// ============================================================
+// 15. TEST NOTIFICATION
+// ============================================================
 app.post('/api/v1/test-notification', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -595,7 +723,7 @@ app.post('/api/v1/test-notification', async (req, res) => {
 
     const payload = JSON.stringify({
       title: '🔔 Test Notification',
-      body: 'Your Push Notification Server is working! 🎉',
+      body: 'Your Sendly Notification is working! 🎉',
       icon: '/icon.png',
       data: { url: '/' }
     });
@@ -634,6 +762,9 @@ app.post('/api/v1/test-notification', async (req, res) => {
   }
 });
 
+// ============================================================
+// 16. VALIDATE API KEY
+// ============================================================
 app.get('/api/v1/validate-key', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -689,6 +820,9 @@ app.get('/api/v1/validate-key', async (req, res) => {
   }
 });
 
+// ============================================================
+// 17. SUBSCRIBE DEVICE
+// ============================================================
 app.post('/api/v1/subscribe', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { endpoint, keys, device_type, device_name, region } = req.body;
@@ -720,6 +854,12 @@ app.post('/api/v1/subscribe', async (req, res) => {
     }
 
     await db.execute({
+      sql: `INSERT INTO subscription_logs (api_key, endpoint, device_type, device_name, region, action)
+            VALUES (?, ?, ?, ?, ?, 'subscribed')`,
+      args: [apiKey, endpoint, device_type || 'unknown', device_name || 'unknown', region || 'unknown']
+    });
+
+    await db.execute({
       sql: `INSERT INTO subscribers (api_key, endpoint, p256dh, auth, device_type, device_name, region)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
@@ -738,6 +878,9 @@ app.post('/api/v1/subscribe', async (req, res) => {
   }
 });
 
+// ============================================================
+// 18. GET SUBSCRIBERS
+// ============================================================
 app.get('/api/v1/subscribers', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -772,6 +915,94 @@ app.get('/api/v1/subscribers', async (req, res) => {
   }
 });
 
+// ============================================================
+// 19. DELETE SUBSCRIBER (NEW)
+// ============================================================
+app.delete('/api/v1/subscribers/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const subscriberId = req.params.id;
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const subscriber = await db.execute({
+      sql: 'SELECT id FROM subscribers WHERE id = ? AND api_key = ?',
+      args: [subscriberId, apiKey]
+    });
+
+    if (subscriber.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'Subscriber not found' });
+    }
+
+    await db.execute({
+      sql: 'DELETE FROM subscribers WHERE id = ?',
+      args: [subscriberId]
+    });
+
+    res.json({
+      status: 001,
+      success: true,
+      message: 'Subscriber deleted successfully'
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 20. EXPORT SUBSCRIBERS (NEW)
+// ============================================================
+app.get('/api/v1/subscribers/export', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const format = req.query.format || 'json';
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const project = await db.execute({
+      sql: 'SELECT api_key FROM projects WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    if (project.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'No such API key' });
+    }
+
+    const result = await db.execute({
+      sql: 'SELECT id, endpoint, device_type, device_name, region, subscriber_group, created_at FROM subscribers WHERE api_key = ? ORDER BY created_at DESC',
+      args: [apiKey]
+    });
+
+    if (format === 'csv') {
+      let csv = 'id,endpoint,device_type,device_name,region,subscriber_group,created_at\n';
+      for (const row of result.rows) {
+        csv += `${row.id},${row.endpoint},${row.device_type || ''},${row.device_name || ''},${row.region || ''},${row.subscriber_group || 'all'},${row.created_at}\n`;
+      }
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=subscribers.csv');
+      return res.send(csv);
+    }
+
+    res.json({
+      status: 200,
+      success: true,
+      count: result.rows.length,
+      subscribers: result.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 21. SEND NOTIFICATION
+// ============================================================
 app.post('/api/v1/send', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const {
@@ -871,7 +1102,7 @@ app.post('/api/v1/send', async (req, res) => {
       }
     }
 
-    const notificationId = `pns_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const notificationId = `sendly_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     await db.execute({
       sql: `INSERT INTO notification_history
@@ -1036,8 +1267,9 @@ app.post('/api/v1/send', async (req, res) => {
               ${image ? `<img src="${image}" style="max-width: 100%; border-radius: 8px; margin-top: 10px;">` : ''}
               ${button1_name ? `<div style="margin-top: 15px;"><a href="${button1_url || '#'}" style="background: #00f2fe; color: #000; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold;">${button1_name}</a></div>` : ''}
               <hr style="border: 1px solid #eee;">
-              <p style="color: #999; font-size: 12px;">Sent via ${BRAND.name} Notification System</p>
-              <p style="color: #999; font-size: 12px;">🏢 ${BRAND.name} | Under Administration of ${BRAND.founder}</p>
+              <p style="color: #999; font-size: 12px;">Sent via ${BRAND.name} | ${BRAND.company}</p>
+              <p style="color: #999; font-size: 12px;">🏢 ${BRAND.company} (${BRAND.short}) | 👤 ${BRAND.founder}</p>
+              <p style="color: #999; font-size: 12px;">⚡ Powered By ${BRAND.powered_by}</p>
             </div>
           </div>
         `
@@ -1078,6 +1310,9 @@ app.post('/api/v1/send', async (req, res) => {
   }
 });
 
+// ============================================================
+// 22. GET NOTIFICATION STATS
+// ============================================================
 app.get('/api/v1/notification/:id/stats', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const notificationId = req.params.id;
@@ -1112,6 +1347,50 @@ app.get('/api/v1/notification/:id/stats', async (req, res) => {
   }
 });
 
+// ============================================================
+// 23. CANCEL SCHEDULED NOTIFICATION (NEW)
+// ============================================================
+app.post('/api/v1/notification/:id/cancel', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notificationId = req.params.id;
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const notif = await db.execute({
+      sql: 'SELECT status FROM notification_history WHERE notification_id = ? AND api_key = ?',
+      args: [notificationId, apiKey]
+    });
+
+    if (notif.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'Notification not found' });
+    }
+
+    if (notif.rows[0].status !== 'scheduled') {
+      return res.json({ status: 400, success: false, message: 'Only scheduled notifications can be cancelled' });
+    }
+
+    await db.execute({
+      sql: 'UPDATE notification_history SET status = "cancelled" WHERE notification_id = ? AND api_key = ?',
+      args: [notificationId, apiKey]
+    });
+
+    res.json({
+      status: 001,
+      success: true,
+      message: 'Scheduled notification cancelled successfully'
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 24. RESEND NOTIFICATION
+// ============================================================
 app.post('/api/v1/notification/:id/resend', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const notificationId = req.params.id;
@@ -1131,7 +1410,7 @@ app.post('/api/v1/notification/:id/resend', async (req, res) => {
     }
 
     const n = notification.rows[0];
-    const newNotificationId = `pns_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newNotificationId = `sendly_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     await db.execute({
       sql: `INSERT INTO notification_history
@@ -1158,6 +1437,9 @@ app.post('/api/v1/notification/:id/resend', async (req, res) => {
   }
 });
 
+// ============================================================
+// 25. PAUSE NOTIFICATION
+// ============================================================
 app.post('/api/v1/notification/:id/pause', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const notificationId = req.params.id;
@@ -1183,6 +1465,9 @@ app.post('/api/v1/notification/:id/pause', async (req, res) => {
   }
 });
 
+// ============================================================
+// 26. PLAY NOTIFICATION
+// ============================================================
 app.post('/api/v1/notification/:id/play', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const notificationId = req.params.id;
@@ -1208,6 +1493,9 @@ app.post('/api/v1/notification/:id/play', async (req, res) => {
   }
 });
 
+// ============================================================
+// 27. DELETE NOTIFICATION
+// ============================================================
 app.delete('/api/v1/notification/:id', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const notificationId = req.params.id;
@@ -1233,6 +1521,172 @@ app.delete('/api/v1/notification/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+// 28. NOTIFICATION TEMPLATES - CREATE (NEW)
+// ============================================================
+app.post('/api/v1/templates', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const { name, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url } = req.body;
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  if (!name || !title || !message) {
+    return res.json({ status: 400, success: false, message: 'Name, title and message are required' });
+  }
+
+  try {
+    const project = await db.execute({
+      sql: 'SELECT api_key FROM projects WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    if (project.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'No such API key' });
+    }
+
+    const templateId = `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    await db.execute({
+      sql: `INSERT INTO templates (api_key, template_id, name, title, message, image_url, icon_url,
+            button1_name, button1_url, button2_name, button2_url, custom_sound_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [apiKey, templateId, name, title, message, image_url || '', icon_url || '',
+            button1_name || '', button1_url || '', button2_name || '', button2_url || '', custom_sound_url || '']
+    });
+
+    res.json({
+      status: 201,
+      success: true,
+      message: 'Template created successfully',
+      template_id: templateId
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 29. NOTIFICATION TEMPLATES - LIST (NEW)
+// ============================================================
+app.get('/api/v1/templates', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const project = await db.execute({
+      sql: 'SELECT api_key FROM projects WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    if (project.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'No such API key' });
+    }
+
+    const templates = await db.execute({
+      sql: 'SELECT id, template_id, name, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, created_at FROM templates WHERE api_key = ? ORDER BY created_at DESC',
+      args: [apiKey]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      count: templates.rows.length,
+      templates: templates.rows
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 30. NOTIFICATION TEMPLATES - UPDATE (NEW)
+// ============================================================
+app.put('/api/v1/templates/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const templateId = req.params.id;
+  const { name, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url } = req.body;
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const template = await db.execute({
+      sql: 'SELECT id FROM templates WHERE template_id = ? AND api_key = ?',
+      args: [templateId, apiKey]
+    });
+
+    if (template.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'Template not found' });
+    }
+
+    await db.execute({
+      sql: `UPDATE templates SET name = ?, title = ?, message = ?, image_url = ?, icon_url = ?,
+            button1_name = ?, button1_url = ?, button2_name = ?, button2_url = ?, custom_sound_url = ?
+            WHERE template_id = ? AND api_key = ?`,
+      args: [name, title, message, image_url || '', icon_url || '',
+            button1_name || '', button1_url || '', button2_name || '', button2_url || '', custom_sound_url || '',
+            templateId, apiKey]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      message: 'Template updated successfully'
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 31. NOTIFICATION TEMPLATES - DELETE (NEW)
+// ============================================================
+app.delete('/api/v1/templates/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const templateId = req.params.id;
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const template = await db.execute({
+      sql: 'SELECT id FROM templates WHERE template_id = ? AND api_key = ?',
+      args: [templateId, apiKey]
+    });
+
+    if (template.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'Template not found' });
+    }
+
+    await db.execute({
+      sql: 'DELETE FROM templates WHERE template_id = ? AND api_key = ?',
+      args: [templateId, apiKey]
+    });
+
+    res.json({
+      status: 001,
+      success: true,
+      message: 'Template deleted successfully'
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 32. REVOKE API KEY
+// ============================================================
 app.post('/api/v1/revoke-key', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { email, password } = req.body;
@@ -1266,7 +1720,7 @@ app.post('/api/v1/revoke-key', async (req, res) => {
     }
 
     const rawKey = crypto.randomBytes(16).toString('hex');
-    const newApiKey = `pns_live_${rawKey}`;
+    const newApiKey = `sendly_live_${rawKey}`;
 
     await db.execute({
       sql: 'UPDATE projects SET api_key = ? WHERE id = ?',
@@ -1286,6 +1740,9 @@ app.post('/api/v1/revoke-key', async (req, res) => {
   }
 });
 
+// ============================================================
+// 33. DELETE APP
+// ============================================================
 app.delete('/api/v1/apps/:id', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const appId = req.params.id;
@@ -1320,6 +1777,9 @@ app.delete('/api/v1/apps/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+// 34. DELETE ACCOUNT
+// ============================================================
 app.post('/api/v1/account/delete', async (req, res) => {
   const { api_key, username, password, confirm } = req.body;
 
@@ -1376,6 +1836,9 @@ app.post('/api/v1/account/delete', async (req, res) => {
   }
 });
 
+// ============================================================
+// 35. WEBHOOK REGISTER
+// ============================================================
 app.post('/api/v1/webhook/register', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { url, event } = req.body;
@@ -1401,6 +1864,9 @@ app.post('/api/v1/webhook/register', async (req, res) => {
   }
 });
 
+// ============================================================
+// 36. WEBHOOK LIST
+// ============================================================
 app.get('/api/v1/webhook/list', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -1425,6 +1891,9 @@ app.get('/api/v1/webhook/list', async (req, res) => {
   }
 });
 
+// ============================================================
+// 37. WEBHOOK DELETE
+// ============================================================
 app.delete('/api/v1/webhook/delete', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { webhook_id } = req.body;
@@ -1450,6 +1919,9 @@ app.delete('/api/v1/webhook/delete', async (req, res) => {
   }
 });
 
+// ============================================================
+// 38. WEBHOOK TRIGGER
+// ============================================================
 app.post('/api/v1/webhook/trigger', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { event, data } = req.body;
@@ -1496,112 +1968,66 @@ app.post('/api/v1/webhook/trigger', async (req, res) => {
   }
 });
 
-const adminAuth = (req, res, next) => {
-  const adminPassword = req.headers['x-admin-password'];
-  if (!adminPassword || adminPassword !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({
-      status: 401,
-      success: false,
-      message: 'Invalid admin password. Access denied.'
-    });
-  }
-  next();
-};
+// ============================================================
+// 39. WEBHOOK TEST
+// ============================================================
+app.post('/api/v1/webhook/test', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const { url } = req.body;
 
-app.get('/api/v1/admin/users', adminAuth, async (req, res) => {
-  try {
-    const users = await db.execute('SELECT id, name, email, plan, blocked, created_at FROM users ORDER BY created_at DESC');
-    res.json({ status: 200, success: true, users: users.rows });
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key required' });
   }
-});
 
-app.get('/api/v1/admin/user/:id', adminAuth, async (req, res) => {
-  try {
-    const user = await db.execute({
-      sql: 'SELECT id, name, email, plan, traffic, blocked, created_at FROM users WHERE id = ?',
-      args: [req.params.id]
-    });
-    if (user.rows.length === 0) {
-      return res.json({ status: 701, success: false, message: 'User not found' });
-    }
-    res.json({ status: 200, success: true, user: user.rows[0] });
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
+  if (!url) {
+    return res.json({ status: 400, success: false, message: 'Webhook URL required' });
   }
-});
 
-app.post('/api/v1/admin/user/:id/block', adminAuth, async (req, res) => {
   try {
-    await db.execute({
-      sql: 'UPDATE users SET blocked = 1 WHERE id = ?',
-      args: [req.params.id]
-    });
-    await db.execute({
-      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
-      args: ['block_user', 'admin@pushservice.com', `Blocked user ID: ${req.params.id}`]
-    });
-    res.json({ status: 200, success: true, message: 'User blocked successfully' });
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
+    const testData = {
+      event: 'test',
+      timestamp: new Date().toISOString(),
+      api_key: apiKey,
+      data: {
+        message: 'This is a test webhook from Sendly Notification',
+        success: true
+      }
+    };
 
-app.post('/api/v1/admin/user/:id/unblock', adminAuth, async (req, res) => {
-  try {
-    await db.execute({
-      sql: 'UPDATE users SET blocked = 0 WHERE id = ?',
-      args: [req.params.id]
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testData)
     });
-    await db.execute({
-      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
-      args: ['unblock_user', 'admin@pushservice.com', `Unblocked user ID: ${req.params.id}`]
-    });
-    res.json({ status: 200, success: true, message: 'User unblocked successfully' });
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
 
-app.delete('/api/v1/admin/user/:id/delete', adminAuth, async (req, res) => {
-  try {
-    await db.execute({
-      sql: 'DELETE FROM users WHERE id = ?',
-      args: [req.params.id]
-    });
-    await db.execute({
-      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
-      args: ['delete_user', 'admin@pushservice.com', `Deleted user ID: ${req.params.id}`]
-    });
-    res.json({ status: 001, success: true, message: 'User deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
+    const responseText = await response.text();
 
-app.get('/api/v1/admin/stats', adminAuth, async (req, res) => {
-  try {
-    const totalUsers = await db.execute('SELECT COUNT(*) as count FROM users');
-    const totalApps = await db.execute('SELECT COUNT(*) as count FROM projects');
-    const totalSubscribers = await db.execute('SELECT COUNT(*) as count FROM subscribers');
-    const totalNotifications = await db.execute('SELECT COUNT(*) as count FROM notification_history');
+    await db.execute({
+      sql: `INSERT INTO webhook_logs (api_key, url, event, status, response)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [apiKey, url, 'test', response.ok ? 'success' : 'failed', responseText.substring(0, 500)]
+    });
 
     res.json({
-      status: 200,
-      success: true,
-      stats: {
-        total_users: totalUsers.rows[0].count,
-        total_apps: totalApps.rows[0].count,
-        total_subscribers: totalSubscribers.rows[0].count,
-        total_notifications: totalNotifications.rows[0].count
-      }
+      status: response.ok ? 200 : 500,
+      success: response.ok,
+      message: response.ok ? '✅ Webhook test successful!' : '❌ Webhook test failed',
+      response_code: response.status,
+      response_body: responseText.substring(0, 500)
     });
+
   } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
+    res.status(500).json({
+      status: 500,
+      success: false,
+      message: '❌ Webhook test error: ' + error.message
+    });
   }
 });
 
+// ============================================================
+// 40. VERIFY WIDGET
+// ============================================================
 app.post('/api/v1/verify-widget', async (req, res) => {
   const { api_key, website_url } = req.body;
 
@@ -1690,60 +2116,9 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   }
 });
 
-app.post('/api/v1/webhook/test', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const { url } = req.body;
-
-  if (!apiKey) {
-    return res.json({ status: 401, success: false, message: 'API key required' });
-  }
-
-  if (!url) {
-    return res.json({ status: 400, success: false, message: 'Webhook URL required' });
-  }
-
-  try {
-    const testData = {
-      event: 'test',
-      timestamp: new Date().toISOString(),
-      api_key: apiKey,
-      data: {
-        message: 'This is a test webhook from Push Notification Service',
-        success: true
-      }
-    };
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(testData)
-    });
-
-    const responseText = await response.text();
-
-    await db.execute({
-      sql: `INSERT INTO webhook_logs (api_key, url, event, status, response)
-            VALUES (?, ?, ?, ?, ?)`,
-      args: [apiKey, url, 'test', response.ok ? 'success' : 'failed', responseText.substring(0, 500)]
-    });
-
-    res.json({
-      status: response.ok ? 200 : 500,
-      success: response.ok,
-      message: response.ok ? '✅ Webhook test successful!' : '❌ Webhook test failed',
-      response_code: response.status,
-      response_body: responseText.substring(0, 500)
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      status: 500,
-      success: false,
-      message: '❌ Webhook test error: ' + error.message
-    });
-  }
-});
-
+// ============================================================
+// 41. LOGS - WEBHOOKS
+// ============================================================
 app.get('/api/v1/logs/webhooks', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -1768,6 +2143,9 @@ app.get('/api/v1/logs/webhooks', async (req, res) => {
   }
 });
 
+// ============================================================
+// 42. LOGS - SUBSCRIPTIONS
+// ============================================================
 app.get('/api/v1/logs/subscriptions', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -1792,6 +2170,9 @@ app.get('/api/v1/logs/subscriptions', async (req, res) => {
   }
 });
 
+// ============================================================
+// 43. LOGS - NOTIFICATIONS
+// ============================================================
 app.get('/api/v1/logs/notifications', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
 
@@ -1816,50 +2197,426 @@ app.get('/api/v1/logs/notifications', async (req, res) => {
   }
 });
 
+// ============================================================
+// 44. ADMIN ENDPOINTS
+// ============================================================
+const adminAuth = (req, res, next) => {
+  const adminPassword = req.headers['x-admin-password'];
+  if (!adminPassword || adminPassword !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({
+      status: 401,
+      success: false,
+      message: 'Invalid admin password. Access denied.'
+    });
+  }
+  next();
+};
+
+app.get('/api/v1/admin/users', adminAuth, async (req, res) => {
+  try {
+    const users = await db.execute('SELECT id, name, email, plan, blocked, created_at FROM users ORDER BY created_at DESC');
+    res.json({ status: 200, success: true, users: users.rows });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+app.get('/api/v1/admin/user/:id', adminAuth, async (req, res) => {
+  try {
+    const user = await db.execute({
+      sql: 'SELECT id, name, email, plan, traffic, blocked, created_at FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
+    if (user.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'User not found' });
+    }
+    res.json({ status: 200, success: true, user: user.rows[0] });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+app.post('/api/v1/admin/user/:id/block', adminAuth, async (req, res) => {
+  try {
+    await db.execute({
+      sql: 'UPDATE users SET blocked = 1 WHERE id = ?',
+      args: [req.params.id]
+    });
+    await db.execute({
+      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
+      args: ['block_user', BRAND.email, `Blocked user ID: ${req.params.id}`]
+    });
+    res.json({ status: 200, success: true, message: 'User blocked successfully' });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+app.post('/api/v1/admin/user/:id/unblock', adminAuth, async (req, res) => {
+  try {
+    await db.execute({
+      sql: 'UPDATE users SET blocked = 0 WHERE id = ?',
+      args: [req.params.id]
+    });
+    await db.execute({
+      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
+      args: ['unblock_user', BRAND.email, `Unblocked user ID: ${req.params.id}`]
+    });
+    res.json({ status: 200, success: true, message: 'User unblocked successfully' });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+app.delete('/api/v1/admin/user/:id/delete', adminAuth, async (req, res) => {
+  try {
+    await db.execute({
+      sql: 'DELETE FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
+    await db.execute({
+      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
+      args: ['delete_user', BRAND.email, `Deleted user ID: ${req.params.id}`]
+    });
+    res.json({ status: 001, success: true, message: 'User deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+app.get('/api/v1/admin/stats', adminAuth, async (req, res) => {
+  try {
+    const totalUsers = await db.execute('SELECT COUNT(*) as count FROM users');
+    const totalApps = await db.execute('SELECT COUNT(*) as count FROM projects');
+    const totalSubscribers = await db.execute('SELECT COUNT(*) as count FROM subscribers');
+    const totalNotifications = await db.execute('SELECT COUNT(*) as count FROM notification_history');
+
+    res.json({
+      status: 200,
+      success: true,
+      stats: {
+        total_users: totalUsers.rows[0].count,
+        total_apps: totalApps.rows[0].count,
+        total_subscribers: totalSubscribers.rows[0].count,
+        total_notifications: totalNotifications.rows[0].count
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 45. ADMIN - RESET QUOTA (NEW)
+// ============================================================
+app.post('/api/v1/admin/user/:id/reset-quota', adminAuth, async (req, res) => {
+  try {
+    await db.execute({
+      sql: 'UPDATE users SET total_push_quota = 1000, total_email_quota = 250 WHERE id = ?',
+      args: [req.params.id]
+    });
+
+    await db.execute({
+      sql: 'UPDATE projects SET push_quota = 1000, email_quota = 250 WHERE user_id = ?',
+      args: [req.params.id]
+    });
+
+    await db.execute({
+      sql: 'INSERT INTO admin_logs (action, admin_email, details) VALUES (?, ?, ?)',
+      args: ['reset_quota', BRAND.email, `Reset quota for user ID: ${req.params.id}`]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      message: 'Quota reset successfully for user'
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 46. ANALYTICS OVERVIEW (NEW)
+// ============================================================
+app.get('/api/v1/analytics/overview', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key is required' });
+  }
+
+  try {
+    const project = await db.execute({
+      sql: 'SELECT api_key FROM projects WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    if (project.rows.length === 0) {
+      return res.json({ status: 701, success: false, message: 'No such API key' });
+    }
+
+    const totalSent = await db.execute({
+      sql: 'SELECT COUNT(*) as count FROM notification_history WHERE api_key = ? AND status = "sent"',
+      args: [apiKey]
+    });
+
+    const totalDelivered = await db.execute({
+      sql: 'SELECT SUM(devices_sent) as total FROM notification_history WHERE api_key = ? AND status = "sent"',
+      args: [apiKey]
+    });
+
+    const totalViews = await db.execute({
+      sql: 'SELECT SUM(views) as total FROM notification_history WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    const totalClicks = await db.execute({
+      sql: 'SELECT SUM(clicks) as total FROM notification_history WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    const totalSubscribers = await db.execute({
+      sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?',
+      args: [apiKey]
+    });
+
+    const sentCount = totalSent.rows[0].count || 0;
+    const deliveredCount = totalDelivered.rows[0].total || 0;
+    const viewCount = totalViews.rows[0].total || 0;
+    const clickCount = totalClicks.rows[0].total || 0;
+    const subscriberCount = totalSubscribers.rows[0].count || 0;
+
+    const deliveryRate = sentCount > 0 ? (deliveredCount / sentCount) * 100 : 0;
+    const openRate = deliveredCount > 0 ? (viewCount / deliveredCount) * 100 : 0;
+    const clickRate = viewCount > 0 ? (clickCount / viewCount) * 100 : 0;
+
+    res.json({
+      status: 200,
+      success: true,
+      analytics: {
+        total_notifications_sent: sentCount,
+        total_delivered: deliveredCount,
+        total_views: viewCount,
+        total_clicks: clickCount,
+        total_subscribers: subscriberCount,
+        delivery_rate: parseFloat(deliveryRate.toFixed(2)),
+        open_rate: parseFloat(openRate.toFixed(2)),
+        click_through_rate: parseFloat(clickRate.toFixed(2)),
+        brand: BRAND.name
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 47. SDK ENDPOINT
+// ============================================================
 app.get('/sdk.js', (req, res) => {
+  const serverUrl = process.env.RENDER_URL || 'https://push-notification-server-5tx2.onrender.com';
+  
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.send(`
     (function() {
       'use strict';
-      const serverUrl = 'https://push-notification-server.onrender.com';
-      async function initPush() {
-        try {
-          if (!('Notification' in window)) {
-            console.warn('Push: Notifications not supported');
-            return;
-          }
-          const scriptTag = document.currentScript || document.querySelector('script[data-api-key]');
-          const apiKey = scriptTag ? scriptTag.getAttribute('data-api-key') : null;
-          if (!apiKey) {
-            console.error('Push: Missing data-api-key in script tag.');
-            return;
-          }
-          if (Notification.permission === 'denied') {
-            console.warn('Push: Notifications blocked');
-            return;
-          }
-          if (Notification.permission === 'granted') {
-            await registerServiceWorker(apiKey);
-            return;
-          }
-          if (Notification.permission === 'default') {
-            const permission = await Notification.requestPermission();
-            if (permission === 'granted') {
-              await registerServiceWorker(apiKey);
+      const SERVER_URL = '${serverUrl}';
+      const APP_NAME = 'Sendly Notification';
+
+      const scriptTag = document.currentScript || document.querySelector('script[data-api-key]');
+      const API_KEY = scriptTag ? scriptTag.getAttribute('data-api-key') : null;
+
+      if (!API_KEY) {
+        console.error('Sendly: Missing data-api-key in script tag.');
+        return;
+      }
+
+      if (!('Notification' in window)) {
+        console.warn('Sendly: Notifications not supported');
+        return;
+      }
+
+      const permissionStatus = Notification.permission;
+
+      function createPopup() {
+        if (document.getElementById('sendly-popup-overlay')) return;
+
+        const popupHTML = \`
+          <div id="sendly-popup-overlay" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999999;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          ">
+            <div id="sendly-popup" style="
+              background: #ffffff;
+              border-radius: 16px;
+              padding: 40px 48px;
+              max-width: 440px;
+              width: 90%;
+              position: relative;
+              box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+              animation: sendlyFadeIn 0.3s ease-out;
+            ">
+              <button id="sendly-close-btn" style="
+                position: absolute;
+                top: 12px;
+                right: 16px;
+                background: none;
+                border: none;
+                font-size: 24px;
+                color: #999;
+                cursor: pointer;
+                padding: 4px 8px;
+                transition: color 0.2s;
+              ">&times;</button>
+
+              <div style="text-align: center; margin-bottom: 16px;">
+                <span style="font-size: 48px;">🔔</span>
+              </div>
+
+              <h2 style="
+                font-size: 22px;
+                font-weight: 700;
+                color: #1a1a2e;
+                text-align: center;
+                margin: 0 0 8px 0;
+              ">Stay Updated with \${APP_NAME}</h2>
+
+              <p style="
+                font-size: 15px;
+                color: #555;
+                text-align: center;
+                margin: 0 0 24px 0;
+                line-height: 1.6;
+              ">
+                Allow notifications to receive real-time updates, alerts, and important messages from this website.
+              </p>
+
+              <div style="display: flex; gap: 12px; justify-content: center;">
+                <button id="sendly-allow-btn" style="
+                  background: #22c55e;
+                  color: #ffffff;
+                  border: none;
+                  border-radius: 8px;
+                  padding: 14px 32px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s;
+                  flex: 1;
+                ">✅ Allow Notifications</button>
+
+                <button id="sendly-dismiss-btn" style="
+                  background: #ef4444;
+                  color: #ffffff;
+                  border: none;
+                  border-radius: 8px;
+                  padding: 14px 32px;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: background 0.2s;
+                  flex: 1;
+                ">❌ Dismiss</button>
+              </div>
+
+              <p style="
+                font-size: 12px;
+                color: #aaa;
+                text-align: center;
+                margin: 16px 0 0 0;
+              ">You can change this anytime in your browser settings</p>
+            </div>
+          </div>
+
+          <style>
+            @keyframes sendlyFadeIn {
+              from {
+                opacity: 0;
+                transform: scale(0.95) translateY(10px);
+              }
+              to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+              }
             }
+            #sendly-allow-btn:hover {
+              background: #16a34a;
+            }
+            #sendly-dismiss-btn:hover {
+              background: #dc2626;
+            }
+            #sendly-close-btn:hover {
+              color: #333;
+            }
+          </style>
+        \`;
+
+        const div = document.createElement('div');
+        div.innerHTML = popupHTML;
+        document.body.appendChild(div.firstElementChild);
+
+        document.getElementById('sendly-allow-btn').addEventListener('click', function() {
+          requestBrowserPermission();
+        });
+
+        document.getElementById('sendly-dismiss-btn').addEventListener('click', function() {
+          closePopup();
+          localStorage.setItem('sendly_dismissed', 'true');
+        });
+
+        document.getElementById('sendly-close-btn').addEventListener('click', function() {
+          closePopup();
+          localStorage.setItem('sendly_dismissed', 'true');
+        });
+
+        document.getElementById('sendly-popup-overlay').addEventListener('click', function(e) {
+          if (e.target === this) {
+            // Do nothing - popup stays open
           }
-        } catch (err) {
-          console.error('Push init error:', err);
+        });
+      }
+
+      function closePopup() {
+        const overlay = document.getElementById('sendly-popup-overlay');
+        if (overlay) {
+          overlay.remove();
         }
       }
-      async function registerServiceWorker(apiKey) {
+
+      function requestBrowserPermission() {
+        Notification.requestPermission().then(function(permission) {
+          if (permission === 'granted') {
+            closePopup();
+            registerServiceWorker();
+            localStorage.removeItem('sendly_dismissed');
+          } else if (permission === 'denied') {
+            closePopup();
+            localStorage.setItem('sendly_blocked', 'true');
+          }
+        });
+      }
+
+      async function registerServiceWorker() {
         try {
-          const swUrl = serverUrl + '/sw.js';
+          const swUrl = SERVER_URL + '/sw.js';
           const reg = await navigator.serviceWorker.register(swUrl);
-          console.log('Push: Service worker registered');
-          const keyRes = await fetch(serverUrl + '/api/v1/vapid-key');
+          console.log('Sendly: Service worker registered');
+
+          const keyRes = await fetch(SERVER_URL + '/api/v1/vapid-key');
           const keyData = await keyRes.json();
+
           function urlBase64ToUint8Array(base64String) {
             const padding = '='.repeat((4 - base64String.length % 4) % 4);
             const base64 = (base64String + padding).replace(/\\-/g, '+').replace(/_/g, '/');
@@ -1870,34 +2627,72 @@ app.get('/sdk.js', (req, res) => {
             }
             return outputArray;
           }
+
           const subscription = await reg.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
           });
-          await fetch(serverUrl + '/api/v1/subscribe', {
+
+          const response = await fetch(SERVER_URL + '/api/v1/subscribe', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-sendly-key': apiKey
+              'x-sendly-key': API_KEY
             },
             body: JSON.stringify(subscription)
           });
-          console.log('Push: Device registered successfully');
+
+          const data = await response.json();
+          if (data.status === 100) {
+            console.log('Sendly: Device registered successfully');
+          } else {
+            console.error('Sendly: Registration failed', data);
+          }
+
         } catch (err) {
-          console.error('Push registration error:', err);
+          console.error('Sendly registration error:', err);
         }
       }
-      if (document.readyState === 'complete') {
-        initPush();
-      } else {
-        window.addEventListener('load', initPush);
+
+      function initSendly() {
+        if (Notification.permission === 'granted') {
+          registerServiceWorker();
+          return;
+        }
+
+        if (Notification.permission === 'denied' || localStorage.getItem('sendly_blocked') === 'true') {
+          return;
+        }
+
+        if (localStorage.getItem('sendly_dismissed') === 'true') {
+          return;
+        }
+
+        createPopup();
       }
-      window.enablePush = initPush;
-      console.log('Push SDK loaded');
+
+      if (document.readyState === 'complete') {
+        initSendly();
+      } else {
+        window.addEventListener('load', initSendly);
+      }
+
+      window.enableSendly = initSendly;
+      window.sendly = {
+        subscribe: registerServiceWorker,
+        showPopup: createPopup,
+        closePopup: closePopup
+      };
+
+      console.log('Sendly: SDK loaded successfully');
+
     })();
   `);
 });
 
+// ============================================================
+// 48. SCHEDULED NOTIFICATION PROCESSOR
+// ============================================================
 async function processScheduledNotifications() {
     try {
         const now = new Date().toISOString();
@@ -2000,14 +2795,25 @@ async function processScheduledNotifications() {
 setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
 
+// ============================================================
+// 49. SERVER START
+// ============================================================
 const PORT = process.env.PORT || 5000;
+const serverUrl = process.env.RENDER_URL || `http://localhost:${PORT}`;
+
 app.listen(PORT, () => {
-  console.log(`🚀 ${BRAND.name} Server running on http://127.0.0.1:${PORT}`);
-  console.log(`🏢 Brand: ${BRAND.name} (${BRAND.short})`);
-  console.log(`👤 Administrator: ${BRAND.founder}`);
+  console.log('');
+  console.log(`🚀 ${BRAND.name} Server running on ${serverUrl}`);
+  console.log(`🏢 ${BRAND.company} (${BRAND.short})`);
+  console.log(`👤 Owned by ${BRAND.founder}`);
+  console.log(`📅 Built: ${BRAND.built_date}`);
+  console.log(`⚡ Powered By ${BRAND.powered_by}`);
+  console.log(`📧 Email: ${BRAND.email}`);
+  console.log('');
   console.log(`✅ CORS enabled - All origins allowed`);
-  console.log(`✅ SDK endpoint: /sdk.js`);
+  console.log(`✅ SDK endpoint: ${serverUrl}/sdk.js`);
   console.log(`✅ Admin endpoints secured with password`);
   console.log(`✅ Scheduled notifications processor running`);
-  console.log(`✅ All endpoints ready!`);
+  console.log(`✅ All ${Object.keys(app._router.stack).length} endpoints ready!`);
+  console.log('');
 });
