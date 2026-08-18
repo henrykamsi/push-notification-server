@@ -1272,7 +1272,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime("now") WHERE notification_id = ?`,
+        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime('now') WHERE notification_id = ?`,
         args: [successCount, notificationId]
       });
 
@@ -1336,7 +1336,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime("now"))',
+        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime('now'))',
         args: [apiKey, notificationId, title, message]
       });
 
@@ -1564,7 +1564,7 @@ app.post('/api/v1/notification/:id/resend', async (req, res) => {
             (api_key, notification_id, title, message, image_url, icon_url,
              button1_name, button1_url, button2_name, button2_url,
              status, sent_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       args: [
         apiKey, newNotificationId, n.title, n.message, n.image_url || '', n.icon_url || '',
         n.button1_name || '', n.button1_url || '', n.button2_name || '', n.button2_url || '',
@@ -2952,7 +2952,7 @@ async function processScheduledNotifications() {
 
                 if (subscribers.rows.length === 0) {
                     await db.execute({
-                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime("now") WHERE id = ?`,
+                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime('now') WHERE id = ?`,
                         args: [notif.id]
                     });
                     continue;
@@ -3006,7 +3006,7 @@ async function processScheduledNotifications() {
                 }
 
                 await db.execute({
-                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime("now"), devices_sent = ? WHERE id = ?`,
+                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`,
                     args: [successCount, notif.id]
                 });
 
