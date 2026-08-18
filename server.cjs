@@ -128,11 +128,10 @@ const db = {
 };
 
 // ============================================================
-// 3. DATABASE INITIALIZATION (FULL SCHEMA)
+// 3. DATABASE INITIALIZATION
 // ============================================================
 async function initDB() {
   try {
-    // USERS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,7 +150,6 @@ async function initDB() {
       )
     `);
 
-    // SESSIONS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,7 +160,6 @@ async function initDB() {
       )
     `);
 
-    // PROJECTS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,7 +179,6 @@ async function initDB() {
       )
     `);
 
-    // SUBSCRIBERS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS subscribers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,7 +194,6 @@ async function initDB() {
       )
     `);
 
-    // NOTIFICATION HISTORY TABLE (FULL COLUMNS)
     await db.execute(`
       CREATE TABLE IF NOT EXISTS notification_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,7 +224,6 @@ async function initDB() {
       )
     `);
 
-    // WEBHOOKS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS webhooks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,7 +235,6 @@ async function initDB() {
       )
     `);
 
-    // RATE LIMITS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS rate_limits (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,7 +244,6 @@ async function initDB() {
       )
     `);
 
-    // ADMIN LOGS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS admin_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -262,7 +254,6 @@ async function initDB() {
       )
     `);
 
-    // WEBHOOK LOGS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS webhook_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,7 +266,6 @@ async function initDB() {
       )
     `);
 
-    // SUBSCRIPTION LOGS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS subscription_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -289,7 +279,6 @@ async function initDB() {
       )
     `);
 
-    // API LOGS TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS api_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,7 +291,6 @@ async function initDB() {
       )
     `);
 
-    // TEMPLATES TABLE
     await db.execute(`
       CREATE TABLE IF NOT EXISTS templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -322,18 +310,6 @@ async function initDB() {
         FOREIGN KEY (api_key) REFERENCES projects(api_key)
       )
     `);
-
-    // ADD MISSING COLUMNS (SAFETY CHECK)
-    try { await db.execute(`ALTER TABLE users ADD COLUMN surname TEXT`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN status TEXT DEFAULT 'pending'`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN sent_at DATETIME`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN devices_sent INTEGER DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN views INTEGER DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN clicks INTEGER DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN button1_clicks INTEGER DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN button2_clicks INTEGER DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN open_rate DECIMAL(5,2) DEFAULT 0`); } catch (e) {}
-    try { await db.execute(`ALTER TABLE notification_history ADD COLUMN avg_view_time DECIMAL(5,2) DEFAULT 0`); } catch (e) {}
 
     console.log('✅ Turso Database connected & schema verified.');
     console.log('✅ All tables ready.');
@@ -769,97 +745,7 @@ app.delete('/api/v1/apps/:id', async (req, res) => {
 });
 
 // ============================================================
-// 18. SELECT APP
-// ============================================================
-app.post('/api/v1/apps/select', async (req, res) => {
-  const sessionToken = req.headers['x-session-token'];
-  const { app_id } = req.body;
-
-  if (!sessionToken) {
-    return res.json({ status: 401, success: false, message: 'Session token required' });
-  }
-
-  if (!app_id) {
-    return res.json({ status: 400, success: false, message: 'App ID required' });
-  }
-
-  try {
-    const user = await db.execute({
-      sql: 'SELECT user_id FROM sessions WHERE token = ?',
-      args: [sessionToken]
-    });
-
-    if (user.rows.length === 0) {
-      return res.json({ status: 401, success: false, message: 'Invalid session' });
-    }
-
-    const userId = user.rows[0].user_id;
-
-    const project = await db.execute({
-      sql: 'SELECT id FROM projects WHERE id = ? AND user_id = ?',
-      args: [app_id, userId]
-    });
-
-    if (project.rows.length === 0) {
-      return res.json({ status: 701, success: false, message: 'App not found' });
-    }
-
-    res.json({
-      status: 200,
-      success: true,
-      message: 'App selected successfully',
-      selected_app: app_id
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 19. GET SELECTED APP
-// ============================================================
-app.get('/api/v1/apps/select', async (req, res) => {
-  const sessionToken = req.headers['x-session-token'];
-
-  if (!sessionToken) {
-    return res.json({ status: 401, success: false, message: 'Session token required' });
-  }
-
-  try {
-    const user = await db.execute({
-      sql: 'SELECT user_id FROM sessions WHERE token = ?',
-      args: [sessionToken]
-    });
-
-    if (user.rows.length === 0) {
-      return res.json({ status: 401, success: false, message: 'Invalid session' });
-    }
-
-    const userId = user.rows[0].user_id;
-
-    const apps = await db.execute({
-      sql: 'SELECT id, app_name, api_key FROM projects WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
-      args: [userId]
-    });
-
-    if (apps.rows.length === 0) {
-      return res.json({ status: 701, success: false, message: 'No apps found' });
-    }
-
-    res.json({
-      status: 200,
-      success: true,
-      selected_app: apps.rows[0]
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 20. SUBSCRIBE DEVICE
+// 18. SUBSCRIBE DEVICE
 // ============================================================
 app.post('/api/v1/subscribe', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -917,7 +803,7 @@ app.post('/api/v1/subscribe', async (req, res) => {
 });
 
 // ============================================================
-// 21. GET SUBSCRIBERS
+// 19. GET SUBSCRIBERS
 // ============================================================
 app.get('/api/v1/subscribers', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -954,110 +840,7 @@ app.get('/api/v1/subscribers', async (req, res) => {
 });
 
 // ============================================================
-// 22. DELETE SUBSCRIBER
-// ============================================================
-app.delete('/api/v1/subscribers/:id', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const subscriberId = req.params.id;
-
-  if (!apiKey) {
-    return res.json({ status: 401, success: false, message: 'API key is required' });
-  }
-
-  try {
-    const subscriber = await db.execute({
-      sql: 'SELECT id FROM subscribers WHERE id = ? AND api_key = ?',
-      args: [subscriberId, apiKey]
-    });
-
-    if (subscriber.rows.length === 0) {
-      return res.json({ status: 701, success: false, message: 'Subscriber not found' });
-    }
-
-    await db.execute({
-      sql: 'DELETE FROM subscribers WHERE id = ?',
-      args: [subscriberId]
-    });
-
-    res.json({
-      status: 001,
-      success: true,
-      message: 'Subscriber deleted successfully'
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 23. SUBSCRIBER COUNT
-// ============================================================
-app.get('/api/v1/subscribers/count', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-
-  if (!apiKey) {
-    return res.json({ status: 401, success: false, message: 'API key is required' });
-  }
-
-  try {
-    const result = await db.execute({
-      sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?',
-      args: [apiKey]
-    });
-
-    res.json({
-      status: 200,
-      success: true,
-      count: result.rows[0].count || 0
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 24. EXPORT SUBSCRIBERS
-// ============================================================
-app.get('/api/v1/subscribers/export', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const format = req.query.format || 'json';
-
-  if (!apiKey) {
-    return res.json({ status: 401, success: false, message: 'API key is required' });
-  }
-
-  try {
-    const result = await db.execute({
-      sql: 'SELECT id, endpoint, device_type, device_name, region, subscriber_group, created_at FROM subscribers WHERE api_key = ? ORDER BY created_at DESC',
-      args: [apiKey]
-    });
-
-    if (format === 'csv') {
-      let csv = 'id,endpoint,device_type,device_name,region,subscriber_group,created_at\n';
-      for (const row of result.rows) {
-        csv += `${row.id},${row.endpoint},${row.device_type || ''},${row.device_name || ''},${row.region || ''},${row.subscriber_group || 'all'},${row.created_at}\n`;
-      }
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=subscribers.csv');
-      return res.send(csv);
-    }
-
-    res.json({
-      status: 200,
-      success: true,
-      count: result.rows.length,
-      subscribers: result.rows
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 25. SEND NOTIFICATION
+// 20. SEND NOTIFICATION - FIXED
 // ============================================================
 app.post('/api/v1/send', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -1238,7 +1021,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: 'UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime('now') WHERE notification_id = ?',
+        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime("now") WHERE notification_id = ?`,
         args: [successCount, notificationId]
       });
 
@@ -1302,7 +1085,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime('now'))',
+        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime("now"))',
         args: [apiKey, notificationId, title, message]
       });
 
@@ -1337,7 +1120,7 @@ app.post('/api/v1/send', async (req, res) => {
 });
 
 // ============================================================
-// 26. TEST NOTIFICATION
+// 21. TEST NOTIFICATION
 // ============================================================
 app.post('/api/v1/test-notification', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -1412,7 +1195,7 @@ app.post('/api/v1/test-notification', async (req, res) => {
 });
 
 // ============================================================
-// 27. VALIDATE API KEY
+// 22. VALIDATE API KEY
 // ============================================================
 app.get('/api/v1/validate-key', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -1465,7 +1248,7 @@ app.get('/api/v1/validate-key', async (req, res) => {
 });
 
 // ============================================================
-// 28. REVOKE API KEY
+// 23. REVOKE API KEY
 // ============================================================
 app.post('/api/v1/revoke-key', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -1521,149 +1304,7 @@ app.post('/api/v1/revoke-key', async (req, res) => {
 });
 
 // ============================================================
-// 29. GET USER PROFILE
-// ============================================================
-app.get('/api/v1/account/profile', async (req, res) => {
-  const sessionToken = req.headers['x-session-token'];
-
-  if (!sessionToken) {
-    return res.json({ status: 401, success: false, message: 'Session token required' });
-  }
-
-  try {
-    const user = await db.execute({
-      sql: 'SELECT id, name, surname, email, plan, created_at FROM users WHERE id IN (SELECT user_id FROM sessions WHERE token = ?)',
-      args: [sessionToken]
-    });
-
-    if (user.rows.length === 0) {
-      return res.json({ status: 401, success: false, message: 'Invalid session' });
-    }
-
-    res.json({
-      status: 200,
-      success: true,
-      user: user.rows[0]
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 30. CHANGE PASSWORD
-// ============================================================
-app.post('/api/v1/account/change-password', async (req, res) => {
-  const sessionToken = req.headers['x-session-token'];
-  const { current_password, new_password, confirm_password } = req.body;
-
-  if (!sessionToken) {
-    return res.json({ status: 401, success: false, message: 'Session token required' });
-  }
-
-  if (!current_password || !new_password || !confirm_password) {
-    return res.json({ status: 400, success: false, message: 'All password fields are required' });
-  }
-
-  if (new_password !== confirm_password) {
-    return res.json({ status: 400, success: false, message: 'New passwords do not match' });
-  }
-
-  try {
-    const user = await db.execute({
-      sql: 'SELECT id, password_hash FROM users WHERE id IN (SELECT user_id FROM sessions WHERE token = ?)',
-      args: [sessionToken]
-    });
-
-    if (user.rows.length === 0) {
-      return res.json({ status: 401, success: false, message: 'Invalid session' });
-    }
-
-    const currentHash = crypto.createHash('sha256').update(current_password).digest('hex');
-
-    if (currentHash !== user.rows[0].password_hash) {
-      return res.json({ status: 401, success: false, message: 'Current password is incorrect' });
-    }
-
-    const newHash = crypto.createHash('sha256').update(new_password).digest('hex');
-
-    await db.execute({
-      sql: 'UPDATE users SET password_hash = ? WHERE id = ?',
-      args: [newHash, user.rows[0].id]
-    });
-
-    res.json({
-      status: 200,
-      success: true,
-      message: 'Password changed successfully'
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 31. DELETE ACCOUNT
-// ============================================================
-app.post('/api/v1/account/delete', async (req, res) => {
-  const { api_key, username, password, confirm } = req.body;
-
-  if (!api_key || !username || !password || !confirm) {
-    return res.json({ status: 400, success: false, message: 'All fields required' });
-  }
-
-  if (confirm !== 'yes') {
-    return res.json({ status: 000, success: false, message: 'Confirmation required. Type "yes" to confirm.' });
-  }
-
-  try {
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-    const user = await db.execute({
-      sql: 'SELECT id FROM users WHERE name = ? AND password_hash = ?',
-      args: [username, passwordHash]
-    });
-
-    if (user.rows.length === 0) {
-      return res.json({ status: 010, success: false, message: 'Incorrect password' });
-    }
-
-    const project = await db.execute({
-      sql: 'SELECT user_id FROM projects WHERE api_key = ?',
-      args: [api_key]
-    });
-
-    if (project.rows.length === 0) {
-      return res.json({ status: 030, success: false, message: 'Incorrect API key' });
-    }
-
-    if (project.rows[0].user_id !== user.rows[0].id) {
-      return res.json({ status: 020, success: false, message: 'Incorrect username' });
-    }
-
-    // Delete all user data
-    await db.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM subscribers WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM notification_history WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM templates WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM webhooks WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM projects WHERE user_id = ?', args: [user.rows[0].id] });
-    await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [user.rows[0].id] });
-
-    res.json({
-      status: 001,
-      success: true,
-      message: 'Account deleted successfully'
-    });
-
-  } catch (error) {
-    res.status(500).json({ status: 500, success: false, error: error.message });
-  }
-});
-
-// ============================================================
-// 32. SCHEDULED NOTIFICATION PROCESSOR
+// 24. SCHEDULED NOTIFICATION PROCESSOR
 // ============================================================
 async function processScheduledNotifications() {
     try {
@@ -1690,7 +1331,7 @@ async function processScheduledNotifications() {
 
                 if (subscribers.rows.length === 0) {
                     await db.execute({
-                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime('now') WHERE id = ?`,
+                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime("now") WHERE id = ?`,
                         args: [notif.id]
                     });
                     continue;
@@ -1744,7 +1385,7 @@ async function processScheduledNotifications() {
                 }
 
                 await db.execute({
-                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`,
+                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime("now"), devices_sent = ? WHERE id = ?`,
                     args: [successCount, notif.id]
                 });
 
@@ -1768,7 +1409,7 @@ setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
 
 // ============================================================
-// 33. SERVER START
+// 25. SERVER START
 // ============================================================
 const PORT = process.env.PORT || 5000;
 const serverUrl = process.env.RENDER_URL || `http://localhost:${PORT}`;
