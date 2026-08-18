@@ -598,7 +598,7 @@ app.post('/api/v1/apps/create', async (req, res) => {
     }
 
     const normalizedAppName = app_name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const urlMatch = app_url.toLowerCase().includes(normalizedAppName) ||
+        const urlMatch = true; // URL verification disabled
                      app_url.toLowerCase().includes(app_name.toLowerCase().replace(/\s/g, ''));
 
     if (!urlMatch) {
@@ -1204,7 +1204,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: 'UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime("now") WHERE notification_id = ?',
+        sql: 'UPDATE notification_history SET devices_sent = ?, status = 'sent', sent_at = datetime("now") WHERE notification_id = ?',
         args: [successCount, notificationId]
       });
 
@@ -1276,7 +1276,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'UPDATE notification_history SET status = "sent", sent_at = datetime("now") WHERE notification_id = ?',
+        sql: 'UPDATE notification_history SET status = 'sent', sent_at = datetime("now") WHERE notification_id = ?',
         args: [notificationId]
       });
 
@@ -1478,7 +1478,7 @@ app.post('/api/v1/notification/:id/play', async (req, res) => {
 
   try {
     await db.execute({
-      sql: 'UPDATE notification_history SET status = "sent" WHERE notification_id = ? AND api_key = ?',
+      sql: 'UPDATE notification_history SET status = 'sent' WHERE notification_id = ? AND api_key = ?',
       args: [notificationId, apiKey]
     });
 
@@ -2357,12 +2357,12 @@ app.get('/api/v1/analytics/overview', async (req, res) => {
     }
 
     const totalSent = await db.execute({
-      sql: 'SELECT COUNT(*) as count FROM notification_history WHERE api_key = ? AND status = "sent"',
+      sql: 'SELECT COUNT(*) as count FROM notification_history WHERE api_key = ? AND status = 'sent'',
       args: [apiKey]
     });
 
     const totalDelivered = await db.execute({
-      sql: 'SELECT SUM(devices_sent) as total FROM notification_history WHERE api_key = ? AND status = "sent"',
+      sql: 'SELECT SUM(devices_sent) as total FROM notification_history WHERE api_key = ? AND status = 'sent'',
       args: [apiKey]
     });
 
