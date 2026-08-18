@@ -37,15 +37,6 @@ self.addEventListener('push', function(event) {
 
 self.addEventListener('notificationclick', function(event) {
     event.notification.close();
-
     const url = event.notification.data?.url || '/';
-    const action = event.action;
-
-    if (action === 'button1' || action === 'button2') {
-        console.log('Button clicked:', action);
-    }
-
-    event.waitUntil(
-        clients.openWindow(url)
-    );
+    event.waitUntil(clients.openWindow(url));
 });
