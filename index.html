@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sendly Notification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f1a;
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+        .logo {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+        h1 {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #7c3aed, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #94a3b8;
+            margin-bottom: 32px;
+        }
+        .card {
+            background: #1e1e2e;
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid #2d2d44;
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            font-size: 20px;
+            color: #e2e8f0;
+            margin-bottom: 12px;
+        }
+        .card p {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .code-block {
+            background: #0f0f1a;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #a855f7;
+            text-align: left;
+            overflow-x: auto;
+            border: 1px solid #2d2d44;
+        }
+        .footer {
+            color: #4a4a5a;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+        .footer span {
+            color: #7c3aed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🔔</div>
+        <h1>Sendly Notification</h1>
+        <p class="subtitle">Simple, powerful push notifications for your website</p>
+        
+        <div class="card">
+            <h2>📡 API Status</h2>
+            <p>Your push notification server is running.</p>
+            <div class="code-block">
+                GET /health → Server is healthy
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🚀 Quick Start</h2>
+            <p>Add this to your website's <code>&lt;head&gt;</code>:</p>
+            <div class="code-block">
+                &lt;script src="https://push-notification-server-5tx2.onrender.com/sdk.js" data-api-key="YOUR_API_KEY"&gt;&lt;/script&gt;
+            </div>
+        </div>
+
+        <div class="footer">
+            Built with ❤️ by <span>Henry Global Tech Industry</span> | &copy; 2026
+        </div>
+    </div>
+</body>
+</html>
