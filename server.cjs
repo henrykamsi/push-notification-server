@@ -1238,7 +1238,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: 'UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime("now") WHERE notification_id = ?',
+        sql: 'UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime('now') WHERE notification_id = ?',
         args: [successCount, notificationId]
       });
 
@@ -1302,7 +1302,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime("now"))',
+        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime('now'))',
         args: [apiKey, notificationId, title, message]
       });
 
