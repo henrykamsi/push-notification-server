@@ -1272,7 +1272,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime('now') WHERE notification_id = ?`,
+        sql: `UPDATE notification_history SET devices_sent = ?, status = "scheduled", sent_at = datetime('now') WHERE notification_id = ?`,
         args: [successCount, notificationId]
       });
 
@@ -1625,7 +1625,7 @@ app.post('/api/v1/notification/:id/play', async (req, res) => {
 
   try {
     await db.execute({
-      sql: 'UPDATE notification_history SET status = "sent" WHERE notification_id = ? AND api_key = ?',
+      sql: 'UPDATE notification_history SET status = "scheduled" WHERE notification_id = ? AND api_key = ?',
       args: [notificationId, apiKey]
     });
 
@@ -1835,12 +1835,12 @@ app.get('/api/v1/analytics/overview', async (req, res) => {
     }
 
     const totalSent = await db.execute({
-      sql: 'SELECT COUNT(*) as count FROM notification_history WHERE api_key = ? AND status = "sent"',
+      sql: 'SELECT COUNT(*) as count FROM notification_history WHERE api_key = ? AND status = "scheduled"',
       args: [apiKey]
     });
 
     const totalDelivered = await db.execute({
-      sql: 'SELECT SUM(devices_sent) as total FROM notification_history WHERE api_key = ? AND status = "sent"',
+      sql: 'SELECT SUM(devices_sent) as total FROM notification_history WHERE api_key = ? AND status = "scheduled"',
       args: [apiKey]
     });
 
@@ -2929,13 +2929,13 @@ app.post('/api/v1/admin/user/:id/reset-quota', adminAuth, async (req, res) => {
 // ============================================================
 async function processScheduledNotifications() {
     try {
-        const now = new Date().toISOString();
+        const now = new Date().toISOString(); console.log("⏰ Checking scheduled notifications at", now);
         const scheduled = await db.execute({
             sql: `SELECT id, api_key, title, message, image_url, icon_url,
                          button1_name, button1_url, button2_name, button2_url,
                          persistent, custom_sound_url, notification_id
                   FROM notification_history
-                  WHERE status = 'scheduled' AND scheduled_for <= ?`,
+                  WHERE status = 'scheduled' AND scheduled_for <= datetime("now")`,
             args: [now]
         });
 
