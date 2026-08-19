@@ -3015,7 +3015,7 @@ async function processScheduledNotifications() {
             } catch (err) {
                 console.error(`❌ Failed to send scheduled notification ${notif.id}:`, err);
                 await db.execute({
-                    sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`,
+                    sql: `UPDATE notification_history SET status = "failed" WHERE id = ?`,
                     args: [notif.id]
                 });
             }
