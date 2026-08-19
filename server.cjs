@@ -1272,7 +1272,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: `UPDATE notification_history SET devices_sent = ?, status = "scheduled", sent_at = datetime('now') WHERE notification_id = ?`,
+        sql: `UPDATE notification_history SET devices_sent = ?, status = "scheduled", sent_at = datetime("now") WHERE notification_id = ?`,
         args: [successCount, notificationId]
       });
 
@@ -1935,7 +1935,7 @@ app.get('/api/v1/analytics/range', async (req, res) => {
     const result = await db.execute({
       sql: `SELECT COUNT(*) as count, SUM(devices_sent) as delivered, SUM(views) as views, SUM(clicks) as clicks
             FROM notification_history
-            WHERE api_key = ? AND status = 'sent' AND sent_at >= ?`,
+            WHERE api_key = ? AND status = "sent" AND sent_at >= ?`,
       args: [apiKey, startDateStr]
     });
 
@@ -2952,7 +2952,7 @@ async function processScheduledNotifications() {
 
                 if (subscribers.rows.length === 0) {
                     await db.execute({
-                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime("now") WHERE id = ?`,
+                        sql: `UPDATE notification_history SET status = "failed", sent_at = datetime("now") WHERE id = ?`,
                         args: [notif.id]
                     });
                     continue;
@@ -3006,7 +3006,7 @@ async function processScheduledNotifications() {
                 }
 
                 await db.execute({
-                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime("now"), devices_sent = ? WHERE id = ?`,
+                    sql: `UPDATE notification_history SET status = "sent", sent_at = datetime("now"), devices_sent = ? WHERE id = ?`,
                     args: [successCount, notif.id]
                 });
 
