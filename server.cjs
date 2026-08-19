@@ -1723,7 +1723,7 @@ app.get('/api/v1/notifications/scheduled', async (req, res) => {
     const result = await db.execute({
       sql: `SELECT id, notification_id, title, message, scheduled_for, status
             FROM notification_history
-            WHERE api_key = ? AND status = 'scheduled'
+            WHERE api_key = ? AND status = "scheduled"
             ORDER BY scheduled_for ASC`,
       args: [apiKey]
     });
@@ -2935,7 +2935,7 @@ async function processScheduledNotifications() {
                          button1_name, button1_url, button2_name, button2_url,
                          persistent, custom_sound_url, notification_id
                   FROM notification_history
-                  WHERE status = 'scheduled' AND scheduled_for <= datetime("now")`,
+                  WHERE status = "scheduled" AND scheduled_for <= datetime("now")`,
             args: [now]
         });
 
