@@ -1216,7 +1216,7 @@ app.post('/api/v1/send', async (req, res) => {
           button2_name || '', button2_url || '',
           persistent ? 1 : 0, scheduled_for || null,
           ab_test_group || null, custom_sound_url || '',
-          scheduled_for ? 'scheduled' : 'sent'
+          scheduled_for ? "scheduled" : "sent"
         ]
       });
 
