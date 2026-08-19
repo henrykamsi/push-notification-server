@@ -208,7 +208,7 @@ async function initDB() {
         button2_name TEXT,
         button2_url TEXT,
         persistent BOOLEAN DEFAULT 0,
-        scheduled_for DATETIME,
+        sent DATETIME,
         sent_at DATETIME,
         devices_sent INTEGER DEFAULT 0,
         views INTEGER DEFAULT 0,
@@ -1101,7 +1101,7 @@ app.post('/api/v1/send', async (req, res) => {
     image, image_url, icon, icon_url,
     button1_name, button1_url,
     button2_name, button2_url,
-    persistent, scheduled_for,
+    persistent, sent,
     custom_sound_url,
     ab_test_group,
     subscriber_group
@@ -1207,16 +1207,16 @@ app.post('/api/v1/send', async (req, res) => {
         sql: `INSERT INTO notification_history
               (api_key, notification_id, title, message, image_url, icon_url,
                button1_name, button1_url, button2_name, button2_url,
-               persistent, scheduled_for, ab_test_group, custom_sound_url, status)
+               persistent, sent, ab_test_group, custom_sound_url, status)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           apiKey, notificationId, title, message,
           image || image_url || '', icon || icon_url || '',
           button1_name || '', button1_url || '',
           button2_name || '', button2_url || '',
-          persistent ? 1 : 0, scheduled_for || null,
+          persistent ? 1 : 0, sent || null,
           ab_test_group || null, custom_sound_url || '',
-          scheduled_for ? "scheduled" : "sent"
+          sent ? "scheduled" : "sent"
         ]
       });
 
@@ -1514,7 +1514,7 @@ app.get('/api/v1/notification/:id/stats', async (req, res) => {
       sql: `SELECT notification_id, title, message, image_url, icon_url,
             button1_name, button1_url, button2_name, button2_url,
             devices_sent, views, clicks, button1_clicks, button2_clicks,
-            open_rate, avg_view_time, status, sent_at, scheduled_for, persistent
+            open_rate, avg_view_time, status, sent_at, sent, persistent
             FROM notification_history
             WHERE notification_id = ? AND api_key = ?`,
       args: [notificationId, apiKey]
@@ -1721,10 +1721,10 @@ app.get('/api/v1/notifications/scheduled', async (req, res) => {
 
   try {
     const result = await db.execute({
-      sql: `SELECT id, notification_id, title, message, scheduled_for, status
+      sql: `SELECT id, notification_id, title, message, sent, status
             FROM notification_history
             WHERE api_key = ? AND status = "scheduled"
-            ORDER BY scheduled_for ASC`,
+            ORDER BY sent ASC`,
       args: [apiKey]
     });
 
@@ -1756,7 +1756,7 @@ app.get('/api/v1/notifications/list', async (req, res) => {
   try {
     const result = await db.execute({
       sql: `SELECT notification_id, title, message, image_url, icon_url,
-            devices_sent, views, clicks, status, sent_at, scheduled_for
+            devices_sent, views, clicks, status, sent_at, sent
             FROM notification_history
             WHERE api_key = ?
             ORDER BY created_at DESC
@@ -2935,7 +2935,7 @@ async function processScheduledNotifications() {
                          button1_name, button1_url, button2_name, button2_url,
                          persistent, custom_sound_url, notification_id
                   FROM notification_history
-                  WHERE status = "scheduled" AND scheduled_for <= datetime("now")`,
+                  WHERE status = "scheduled" AND sent <= datetime("now")`,
             args: [now]
         });
 
