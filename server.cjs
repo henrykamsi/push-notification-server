@@ -1085,7 +1085,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime("now"))',
+        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime('now'))',
         args: [apiKey, notificationId, title, message]
       });
 
@@ -1331,7 +1331,7 @@ async function processScheduledNotifications() {
 
                 if (subscribers.rows.length === 0) {
                     await db.execute({
-                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime("now") WHERE id = ?`,
+                        sql: `UPDATE notification_history SET status = 'failed', sent_at = datetime('now') WHERE id = ?`,
                         args: [notif.id]
                     });
                     continue;
@@ -1385,7 +1385,7 @@ async function processScheduledNotifications() {
                 }
 
                 await db.execute({
-                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime("now"), devices_sent = ? WHERE id = ?`,
+                    sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`,
                     args: [successCount, notif.id]
                 });
 
