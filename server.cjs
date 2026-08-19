@@ -536,7 +536,91 @@ app.post('/api/v1/auth/login', async (req, res) => {
     res.status(500).json({ status: 500, success: false, error: error.message });
   }
 });
+// ============================================================
+// 13.5. GOOGLE AUTH
+// ============================================================
+app.post('/api/v1/auth/google', async (req, res) => {
+  const { token } = req.body;
 
+  if (!token) {
+    return res.status(400).json({ status: 400, success: false, message: 'Token required' });
+  }
+
+  try {
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture } = payload;
+
+    const existingUser = await db.execute({
+      sql: 'SELECT id, name, email, plan, blocked FROM users WHERE email = ?',
+      args: [email]
+    });
+
+    if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+      if (user.blocked === 1) {
+        return res.json({ status: 403, success: false, message: 'Account blocked.' });
+      }
+
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      await db.execute({
+        sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)',
+        args: [user.id, sessionToken]
+      });
+
+      return res.json({
+        status: 200,
+        success: true,
+        message: 'Login successful',
+        user_id: user.id,
+        name: user.name || name || 'User',
+        email: user.email,
+        plan: user.plan || 'free',
+        session_token: sessionToken
+      });
+    } else {
+      const result = await db.execute({
+        sql: 'INSERT INTO users (name, email, password_hash, traffic) VALUES (?, ?, ?, ?)',
+        args: [name || 'Google User', email, 'google_oauth_' + Date.now(), 'google']
+      });
+
+      const newUser = await db.execute({
+        sql: 'SELECT id, name, email, plan FROM users WHERE email = ?',
+        args: [email]
+      });
+
+      const user = newUser.rows[0];
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+
+      await db.execute({
+        sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)',
+        args: [user.id, sessionToken]
+      });
+
+      return res.json({
+        status: 201,
+        success: true,
+        message: 'Account created and logged in',
+        user_id: user.id,
+        name: user.name,
+        email: user.email,
+        plan: user.plan || 'free',
+        session_token: sessionToken
+      });
+    }
+
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({ status: 500, success: false, message: 'Google authentication failed' });
+  }
+});
 // ============================================================
 // 14. LOGOUT
 // ============================================================
@@ -1021,7 +1105,7 @@ app.post('/api/v1/send', async (req, res) => {
       await Promise.all(pushPromises);
 
       await db.execute({
-        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime('now') WHERE notification_id = ?`,
+        sql: `UPDATE notification_history SET devices_sent = ?, status = "sent", sent_at = datetime("now") WHERE notification_id = ?`,
         args: [successCount, notificationId]
       });
 
@@ -1085,7 +1169,7 @@ app.post('/api/v1/send', async (req, res) => {
       });
 
       await db.execute({
-        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime('now'))',
+        sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status, sent_at) VALUES (?, ?, ?, ?, "sent", datetime("now"))',
         args: [apiKey, notificationId, title, message]
       });
 
