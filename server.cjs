@@ -1491,6 +1491,86 @@ async function processScheduledNotifications() {
 
 setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
+// ============================================================
+// 51. LOGS - WEBHOOKS
+// ============================================================
+app.get('/api/v1/logs/webhooks', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key required' });
+  }
+
+  try {
+    const logs = await db.execute({
+      sql: 'SELECT id, url, event, status, response, created_at FROM webhook_logs WHERE api_key = ? ORDER BY created_at DESC LIMIT 50',
+      args: [apiKey]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      count: logs.rows.length,
+      logs: logs.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 52. LOGS - SUBSCRIPTIONS
+// ============================================================
+app.get('/api/v1/logs/subscriptions', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key required' });
+  }
+
+  try {
+    const logs = await db.execute({
+      sql: 'SELECT id, endpoint, device_type, device_name, region, action, created_at FROM subscription_logs WHERE api_key = ? ORDER BY created_at DESC LIMIT 50',
+      args: [apiKey]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      count: logs.rows.length,
+      logs: logs.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
+// 53. LOGS - NOTIFICATIONS
+// ============================================================
+app.get('/api/v1/logs/notifications', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+
+  if (!apiKey) {
+    return res.json({ status: 401, success: false, message: 'API key required' });
+  }
+
+  try {
+    const logs = await db.execute({
+      sql: 'SELECT notification_id, title, message, devices_sent, status, sent_at FROM notification_history WHERE api_key = ? ORDER BY sent_at DESC LIMIT 50',
+      args: [apiKey]
+    });
+
+    res.json({
+      status: 200,
+      success: true,
+      count: logs.rows.length,
+      logs: logs.rows
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
 
 // ============================================================
 // 25. SERVER START
