@@ -494,49 +494,12 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 // 11. SCHEDULED NOTIFICATION PROCESSOR
 // ============================================================
-async function processScheduledNotifications() {
-    try {
-        const now = new Date();
-        // Format as YYYY-MM-DD HH:MM:SS in LOCAL time to match the DB insertion
-        const localNow = now.getFullYear() + '-' + 
-                         String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-                         String(now.getDate()).padStart(2, '0') + ' ' + 
-                         String(now.getHours()).padStart(2, '0') + ':' + 
-                         String(now.getMinutes()).padStart(2, '0') + ':' + 
-                         String(now.getSeconds()).padStart(2, '0');
-        const scheduled = await db.execute({ sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?`, args: [localNow] });
-        if (scheduled.rows.length === 0) return;
-        for (const notif of scheduled.rows) {
-            try {
-                const subscribers = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [notif.api_key] });
-                if (subscribers.rows.length === 0) { await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] }); continue; }
-                const payload = { title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200], data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' } };
-                const actions = [];
-                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
-                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
-                if (actions.length > 0) payload.actions = actions;
-                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
-                
-                let successCount = 0;
-                for (const sub of subscribers.rows) {
-                    try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload)); successCount++; } 
-                    catch (err) { if (err.statusCode === 410 || err.statusCode === 404) await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] }); }
-                }
-                await db.execute({ sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`, args: [successCount, notif.id] });
-            } catch (err) { await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] }); }
-        }
-    } catch (error) { console.error('Scheduler error:', error); }
-}
-setInterval(processScheduledNotifications, 30000);
-setTimeout(processScheduledNotifications, 5000);
+
 
 // ============================================================
 // 12. START SERVER
 // ============================================================
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+
 
 // ============================================================
 // 64. MISSING ENDPOINTS (RESTORED)
@@ -583,4 +546,93 @@ app.post('/api/v1/verify-widget', async (req, res) => {
     const subs = await db.execute({ sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?', args: [api_key] });
     return res.json({ status: 200, success: true, message: '✅ Widget Verified!', project_name: project.rows[0].project_name, subscribers: subs.rows[0].count || 0 });
   } catch (e) { return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + e.message }); }
+});
+
+// ============================================================
+// BACKGROUND SCHEDULER (FIXED FOR TURSO UTC)
+// ============================================================
+async function processScheduledNotifications() {
+    try {
+        // We use SQLite's datetime('now') directly in the query to ensure it compares UTC to UTC perfectly.
+        const scheduled = await db.execute({ 
+            sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id 
+                  FROM notification_history 
+                  WHERE status = 'scheduled' 
+                  AND datetime(scheduled_for) <= datetime('now')`, 
+            args: [] 
+        });
+
+        if (!scheduled || !scheduled.rows || scheduled.rows.length === 0) return;
+
+        console.log(`⏰ Processing ${scheduled.rows.length} scheduled notifications...`);
+
+        for (const notif of scheduled.rows) {
+            try {
+                const subscribers = await db.execute({ 
+                    sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', 
+                    args: [notif.api_key] 
+                });
+
+                if (subscribers.rows.length === 0) {
+                    await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] });
+                    continue;
+                }
+
+                const payload = {
+                    title: notif.title, 
+                    body: notif.message, 
+                    icon: notif.icon_url || '/icon.png', 
+                    image: notif.image_url || '', 
+                    badge: '/badge.png', 
+                    vibrate: [200, 100, 200],
+                    data: { 
+                        url: '/', 
+                        notification_id: notif.notification_id, 
+                        button1_url: notif.button1_url || '', 
+                        button2_url: notif.button2_url || '' 
+                    }
+                };
+
+                const actions = [];
+                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
+                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
+                if (actions.length > 0) payload.actions = actions;
+                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
+
+                const finalPayload = JSON.stringify(payload);
+                let successCount = 0;
+
+                for (const sub of subscribers.rows) {
+                    try {
+                        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, finalPayload);
+                        successCount++;
+                    } catch (err) {
+                        if (err.statusCode === 410 || err.statusCode === 404) {
+                            await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] });
+                        }
+                    }
+                }
+
+                await db.execute({ sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`, args: [successCount, notif.id] });
+                console.log(`✅ Sent scheduled notification ${notif.notification_id} to ${successCount} devices`);
+
+            } catch (err) {
+                console.error(`❌ Failed to send scheduled notification ${notif.id}:`, err);
+                await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] });
+            }
+        }
+    } catch (error) {
+        console.error('❌ Scheduler Error:', error);
+    }
+}
+
+setInterval(processScheduledNotifications, 30000);
+setTimeout(processScheduledNotifications, 5000);
+
+// ============================================================
+// 12. START SERVER
+// ============================================================
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
