@@ -42,7 +42,6 @@ self.addEventListener("notificationclick", function(event) {
     const url = event.notification.data?.url || "/";
     const notificationId = event.notification.data?.notification_id;
     
-    // 🔥 TRACK THE CLICK TO THE SERVER
     if (notificationId) {
         event.waitUntil(
             fetch('https://push-notification-server-5tx2.onrender.com/api/v1/analytics/track', {
