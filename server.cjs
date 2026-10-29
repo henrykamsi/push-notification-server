@@ -1727,6 +1727,15 @@ app.post('/api/v1/analytics/track', async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+  try {
+    if (action === 'click') {
+      await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1, views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    } else if (action === 'open') {
+      await db.execute({ sql: 'UPDATE notification_history SET views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 25. SERVER START
 // ============================================================
