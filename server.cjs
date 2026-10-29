@@ -1723,6 +1723,104 @@ app.post('/api/v1/analytics/track', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ============================================================
+// 57. VERIFY WIDGET
+// ============================================================
+app.post('/api/v1/verify-widget', async (req, res) => {
+  const { api_key, website_url } = req.body;
+  if (!api_key) return res.status(400).json({ status: 400, success: false, message: 'API key required' });
+  
+  try {
+    const project = await db.execute({
+      sql: 'SELECT project_name FROM projects WHERE api_key = ?',
+      args: [api_key]
+    });
+
+    if (project.rows.length === 0) {
+      return res.status(404).json({ status: 404, success: false, message: 'Invalid API Key' });
+    }
+
+    // Check if there are subscribers (meaning the widget is likely working)
+    const subs = await db.execute({
+      sql: 'SELECT COUNT(*) as count, MAX(created_at) as last_activity FROM subscribers WHERE api_key = ?',
+      args: [api_key]
+    });
+
+    const count = subs.rows[0].count || 0;
+    
+    if (count > 0) {
+      res.json({
+        status: 200,
+        success: true,
+        message: 'Widget verified successfully!',
+        project_name: project.rows[0].project_name,
+        subscribers: count,
+        last_activity: subs.rows[0].last_activity || 'Just now'
+      });
+    } else {
+      res.json({
+        status: 404,
+        success: false,
+        message: 'No subscribers found for this website yet.',
+        suggestion: 'Make sure the config code is in the <head> and you have clicked Allow on the popup.'
+      });
+    }
+  } catch (e) {
+    res.status(500).json({ status: 500, success: false, message: e.message });
+  }
+});
+
+// ============================================================
+// 58. ANALYTICS RANGE (Open Rate & Click Rate)
+// ============================================================
+app.get('/api/v1/analytics/range', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const range = req.query.range || 'today';
+
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+
+  try {
+    // Calculate total sent, delivered, views, clicks
+    const stats = await db.execute({
+      sql: `SELECT 
+              COUNT(*) as total_sent,
+              SUM(devices_sent) as total_delivered,
+              SUM(views) as total_views,
+              SUM(clicks) as total_clicks
+            FROM notification_history 
+            WHERE api_key = ? AND status = 'sent'`,
+      args: [apiKey]
+    });
+
+    const row = stats.rows[0] || {};
+    const sent = row.total_sent || 0;
+    const delivered = row.total_delivered || 0;
+    const views = row.total_views || 0;
+    const clicks = row.total_clicks || 0;
+
+    const openRate = delivered > 0 ? ((views / delivered) * 100).toFixed(1) : 0;
+    const clickRate = delivered > 0 ? ((clicks / delivered) * 100).toFixed(1) : 0;
+    const deliveryRate = sent > 0 ? ((delivered / sent) * 100).toFixed(1) : 0;
+
+    res.json({
+      status: 200,
+      success: true,
+      analytics: {
+        total_notifications_sent: sent,
+        total_delivered: delivered,
+        total_views: views,
+        total_clicks: clicks,
+        open_rate: parseFloat(openRate),
+        click_through_rate: parseFloat(clickRate),
+        delivery_rate: parseFloat(deliveryRate)
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ status: 500, message: e.message });
+  }
+});
+
 // ============================================================
 // 25. SERVER START
 // ============================================================
