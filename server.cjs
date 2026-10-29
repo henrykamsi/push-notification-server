@@ -1728,8 +1728,9 @@ app.post('/api/v1/analytics/track', async (req, res) => {
 // 57. VERIFY WIDGET
 // ============================================================
 app.post('/api/v1/verify-widget', async (req, res) => {
-  const { api_key, website_url } = req.body;
+  let { api_key, website_url } = req.body;
   if (!api_key) return res.status(400).json({ status: 400, success: false, message: 'API key required' });
+  if (!website_url) return res.status(400).json({ status: 400, success: false, message: 'Website URL required' });
   
   try {
     const project = await db.execute({
@@ -1739,6 +1740,30 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 
     if (project.rows.length === 0) {
       return res.status(404).json({ status: 404, success: false, message: 'Invalid API Key' });
+    }
+
+    // 🌐 ACTUALLY FETCH THE WEBSITE HTML
+    if (!website_url.startsWith('http')) website_url = 'https://' + website_url;
+    
+    let htmlContent = '';
+    try {
+      const response = await fetch(website_url, { headers: { 'User-Agent': 'Sendly-Verifier/1.0' } });
+      if (!response.ok) {
+          return res.json({ status: 400, success: false, message: 'Could not reach website (Status: ' + response.status + ')' });
+      }
+      htmlContent = await response.text();
+    } catch (e) {
+      return res.json({ status: 400, success: false, message: 'Invalid URL or website is offline.', suggestion: e.message });
+    }
+
+    // 🔍 SCAN THE HTML FOR THE API KEY
+    if (!htmlContent.includes(api_key)) {
+        return res.json({ 
+            status: 404, 
+            success: false, 
+            message: 'Widget NOT found on this website.',
+            suggestion: 'Make sure you pasted the Config Code inside the <head> of this exact URL.'
+        });
     }
 
     // Check if there are subscribers (meaning the widget is likely working)
