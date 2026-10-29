@@ -1732,6 +1732,68 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   if (!api_key) return res.status(400).json({ status: 400, success: false, message: 'API key required' });
   if (!website_url) return res.status(400).json({ status: 400, success: false, message: 'Website URL required' });
   
+  // 🛑 STRICT URL CHECK: Must start with http:// or https://
+  if (!website_url.startsWith('http://') && !website_url.startsWith('https://')) {
+      return res.json({ status: 400, success: false, message: 'Invalid URL format. You must include https:// or http:// (e.g. https://example.com)' });
+  }
+
+  try {
+    const project = await db.execute({
+      sql: 'SELECT project_name FROM projects WHERE api_key = ?',
+      args: [api_key]
+    });
+
+    if (project.rows.length === 0) {
+      return res.json({ status: 404, success: false, message: 'Invalid API Key' });
+    }
+
+    // 🌐 ACTUALLY FETCH THE EXACT WEBSITE HTML
+    let htmlContent = '';
+    try {
+      const response = await fetch(website_url, { 
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          redirect: 'follow'
+      });
+      
+      if (!response.ok) {
+          return res.json({ status: 400, success: false, message: 'Could not reach website. Status: ' + response.status });
+      }
+      htmlContent = await response.text();
+    } catch (e) {
+      return res.json({ status: 400, success: false, message: 'Website is offline or URL is invalid.', suggestion: e.message });
+    }
+
+    // 🔍 SCAN THE HTML FOR THE EXACT API KEY
+    if (!htmlContent.includes(api_key)) {
+        return res.json({ 
+            status: 404, 
+            success: false, 
+            message: 'Config NOT found on this website.',
+            suggestion: 'The API key was not found in the HTML of this URL. Make sure you pasted the Config Code inside the <head>.'
+        });
+    }
+
+    // ✅ SUCCESS
+    const subs = await db.execute({
+      sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?',
+      args: [api_key]
+    });
+
+    res.json({
+        status: 200,
+        success: true,
+        message: '✅ Widget Verified! The API key was found on this website.',
+        project_name: project.rows[0].project_name,
+        subscribers: subs.rows[0].count || 0,
+        last_activity: new Date().toISOString()
+    });
+
+  } catch (e) {
+    res.status(500).json({ status: 500, success: false, message: e.message });
+  }
+});
+  if (!website_url) return res.status(400).json({ status: 400, success: false, message: 'Website URL required' });
+  
   try {
     const project = await db.execute({
       sql: 'SELECT project_name FROM projects WHERE api_key = ?',
