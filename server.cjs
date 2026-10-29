@@ -1026,7 +1026,25 @@ app.post('/api/v1/send', async (req, res) => {
 
     const notificationId = `sendly_msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-    if (channel === 'push') {
+    
+      // 🛑 INTERCEPT SCHEDULED NOTIFICATIONS HERE
+      if (scheduled_for) {
+          await db.execute({
+              sql: `INSERT INTO notification_history 
+                    (api_key, notification_id, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, persistent, scheduled_for, status) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`,
+              args: [apiKey, notificationId, title, message, image || image_url || '', icon || icon_url || '', button1_name || '', button1_url || '', button2_name || '', button2_url || '', persistent ? 1 : 0, scheduled_for]
+          });
+          return res.json({ 
+              status: 201, 
+              success: true, 
+              message: '✅ Notification Scheduled!', 
+              notification_id: notificationId, 
+              scheduled_for: scheduled_for 
+          });
+      }
+
+      if (channel === 'push') {
       const currentQuota = project.rows[0].push_quota ?? 1000;
 
       // ✅ BUG FIX: Check how many subscribers they are trying to send to
