@@ -391,6 +391,66 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   } catch (e) { return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + e.message }); }
 });
 
+
+// ============================================================
+// 20. MISSING STATS ENDPOINTS
+// ============================================================
+app.get('/api/v1/analytics/notification/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    const result = await db.execute({ sql: 'SELECT title, devices_sent, views, clicks, button1_clicks, button2_clicks, status, sent_at FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    if (result.rows.length === 0) return res.status(404).json({ status: 404, message: 'Notification not found' });
+    res.json({ status: 200, success: true, notification: result.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/v1/notification/:id/resend', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    const orig = await db.execute({ sql: 'SELECT title, message FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    if (orig.rows.length === 0) return res.status(404).json({ status: 404, message: 'Original notification not found' });
+    const { title, message } = orig.rows[0];
+    const newNotifId = `sendly_msg_${Date.now()}`;
+    
+    // Create new history record
+    await db.execute({ sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status) VALUES (?, ?, ?, ?, "sent")', args: [apiKey, newNotifId, title, message] });
+    
+    // Send to subscribers
+    const subs = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [apiKey] });
+    let successCount = 0;
+    const payload = JSON.stringify({ title, body: message, data: { notification_id: newNotifId } });
+    for (const sub of subs.rows) {
+        try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload); successCount++; } catch(e) {}
+    }
+    await db.execute({ sql: 'UPDATE notification_history SET devices_sent = ? WHERE notification_id = ?', args: [successCount, newNotifId] });
+    res.json({ status: 201, success: true, new_notification_id: newNotifId, message: 'Resent successfully' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/v1/notification/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    await db.execute({ sql: 'DELETE FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    res.json({ status: 001, success: true, message: 'Deleted' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/v1/notification/:id/cancel', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    await db.execute({ sql: 'UPDATE notification_history SET status = "cancelled" WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    res.json({ status: 001, success: true, message: 'Cancelled' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ============================================================
 // 11. SCHEDULED NOTIFICATION PROCESSOR (Runs every 30s)
 // ============================================================
