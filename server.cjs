@@ -487,6 +487,51 @@ setTimeout(processScheduledNotifications, 5000);
 // 12. START SERVER
 // ============================================================
 const PORT = process.env.PORT || 5000;
+
+// ============================================================
+// 59. GOOGLE AUTHENTICATION (BULLETPROOF)
+// ============================================================
+app.post('/api/v1/auth/google', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ status: 400, success: false, message: 'Token required' });
+  
+  try {
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client('136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com');
+    
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: '136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com'
+    });
+    
+    const payload = ticket.getPayload();
+    const { email, name } = payload;
+    
+    const existingUser = await db.execute({ sql: 'SELECT id, name, email, plan, blocked FROM users WHERE email = ?', args: [email] });
+    
+    if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+      if (user.blocked === 1) return res.json({ status: 403, success: false, message: 'Account blocked.' });
+      
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
+      
+      return res.json({ status: 200, success: true, message: 'Login successful', user_id: user.id, name: user.name || name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
+    } else {
+      await db.execute({ sql: 'INSERT INTO users (name, email, password_hash, traffic) VALUES (?, ?, ?, ?)', args: [name || 'Google User', email, 'google_oauth_' + Date.now(), 'google'] });
+      const newUser = await db.execute({ sql: 'SELECT id, name, email, plan FROM users WHERE email = ?', args: [email] });
+      const user = newUser.rows[0];
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
+      
+      return res.json({ status: 201, success: true, message: 'Account created and logged in', user_id: user.id, name: user.name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
+    }
+  } catch (error) {
+    console.error('Google Auth Error:', error.message);
+    return res.status(500).json({ status: 500, success: false, message: 'Google auth failed: ' + error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
