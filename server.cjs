@@ -1007,11 +1007,30 @@ app.post('/api/v1/send', async (req, res) => {
     if (channel === 'push') {
       const currentQuota = project.rows[0].push_quota ?? 1000;
 
+      // ✅ BUG FIX: Check how many subscribers they are trying to send to
+      let subCheckQuery = 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?';
+      let subCheckArgs = [apiKey];
+      if (subscriber_group && subscriber_group !== 'all') {
+        subCheckQuery += ' AND subscriber_group = ?';
+        subCheckArgs.push(subscriber_group);
+      }
+      const subCountRes = await db.execute({ sql: subCheckQuery, args: subCheckArgs });
+      const targetDevices = subCountRes.rows[0].count;
+
       if (currentQuota <= 0) {
         return res.status(702).json({
           status: 702,
           error: 'Limit Reached',
           message: 'Push notification quota exhausted. Please upgrade your plan.'
+        });
+      }
+
+      // ✅ BUG FIX: Stop them if they don't have enough credits for all devices
+      if (currentQuota < targetDevices) {
+        return res.status(702).json({
+          status: 702,
+          error: 'Limit Reached',
+          message: 'Not enough push quota. You have ' + currentQuota + ' credits, but are trying to send to ' + targetDevices + ' devices. Please upgrade your plan.'
         });
       }
 
@@ -1109,7 +1128,8 @@ app.post('/api/v1/send', async (req, res) => {
         args: [successCount, notificationId]
       });
 
-      const newQuota = currentQuota - 1;
+      // ✅ BUG FIX: Deduct quota based on the number of devices successfully sent
+      const newQuota = currentQuota - successCount;
       await db.execute({
         sql: 'UPDATE projects SET push_quota = ? WHERE api_key = ?',
         args: [newQuota, apiKey]
