@@ -1711,8 +1711,17 @@ app.get('/api/v1/analytics/countries', async (req, res) => {
 // 56. TRACK CLICK / OPEN
 // ============================================================
 app.post('/api/v1/analytics/track', async (req, res) => {
-  const { notification_id, action } = req.body; // action = 'click' or 'open'
+  const { notification_id, action } = req.body;
   if (!notification_id) return res.status(400).json({ error: 'Missing ID' });
+  try {
+    if (action === 'click') {
+      await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1, views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    } else if (action === 'open') {
+      await db.execute({ sql: 'UPDATE notification_history SET views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
   try {
     if (action === 'click') {
       await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1 WHERE notification_id = ?', args: [notification_id] });
@@ -1730,6 +1739,37 @@ app.post('/api/v1/analytics/track', async (req, res) => {
 app.post('/api/v1/verify-widget', async (req, res) => {
   let { api_key, website_url } = req.body;
   if (!api_key) return res.status(400).json({ status: 400, success: false, message: 'API key required' });
+  if (!website_url) return res.status(400).json({ status: 400, success: false, message: 'Website URL required' });
+  
+  // 🛑 STRICT URL CHECK
+  if (!website_url.startsWith('http://') && !website_url.startsWith('https://')) {
+      return res.json({ status: 400, success: false, message: '❌ Invalid URL. You MUST include https:// or http://' });
+  }
+
+  try {
+    const project = await db.execute({ sql: 'SELECT project_name FROM projects WHERE api_key = ?', args: [api_key] });
+    if (project.rows.length === 0) return res.json({ status: 404, success: false, message: 'Invalid API Key' });
+
+    let htmlContent = '';
+    try {
+      const response = await fetch(website_url, { headers: { 'User-Agent': 'Mozilla/5.0' }, redirect: 'follow' });
+      if (!response.ok) return res.json({ status: 400, success: false, message: 'Could not reach website. Status: ' + response.status });
+      htmlContent = await response.text();
+    } catch (e) {
+      return res.json({ status: 400, success: false, message: 'Website is offline or URL is invalid.' });
+    }
+
+    // 🔍 SCAN THE HTML
+    if (!htmlContent.includes(api_key)) {
+        return res.json({ status: 404, success: false, message: '❌ Config NOT found on this website.', suggestion: 'The API key was not found in the HTML. Make sure you pasted the Config Code.' });
+    }
+
+    const subs = await db.execute({ sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?', args: [api_key] });
+    res.json({ status: 200, success: true, message: '✅ Widget Verified!', project_name: project.rows[0].project_name, subscribers: subs.rows[0].count || 0 });
+  } catch (e) {
+    res.status(500).json({ status: 500, success: false, message: e.message });
+  }
+});
   if (!website_url) return res.status(400).json({ status: 400, success: false, message: 'Website URL required' });
   
   // 🛑 STRICT URL CHECK: Must start with http:// or https://
@@ -1863,9 +1903,45 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 app.get('/api/v1/analytics/range', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
-  const range = req.query.range || 'today';
-
   if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+
+  try {
+    const stats = await db.execute({
+      sql: `SELECT 
+              COUNT(*) as total_sent,
+              SUM(devices_sent) as total_delivered,
+              SUM(views) as total_views,
+              SUM(clicks) as total_clicks
+            FROM notification_history 
+            WHERE api_key = ? AND status = 'sent'`,
+      args: [apiKey]
+    });
+
+    const row = stats.rows[0] || {};
+    const sent = row.total_sent || 0;
+    const delivered = row.total_delivered || 0;
+    const views = row.total_views || 0;
+    const clicks = row.total_clicks || 0;
+
+    // REAL-TIME MATH
+    const successRate = sent > 0 ? ((delivered / sent) * 100).toFixed(1) : 0;
+    const openRate = delivered > 0 ? ((views / delivered) * 100).toFixed(1) : 0;
+    const clickRate = delivered > 0 ? ((clicks / delivered) * 100).toFixed(1) : 0;
+
+    res.json({
+      status: 200, success: true,
+      analytics: {
+        total_notifications_sent: sent,
+        total_delivered: delivered,
+        total_views: views,
+        total_clicks: clicks,
+        open_rate: parseFloat(openRate),
+        click_through_rate: parseFloat(clickRate),
+        delivery_rate: parseFloat(successRate)
+      }
+    });
+  } catch (e) { res.status(500).json({ status: 500, message: e.message }); }
+});
 
   try {
     // Calculate total sent, delivered, views, clicks
