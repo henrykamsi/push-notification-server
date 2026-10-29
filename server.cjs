@@ -427,29 +427,9 @@ app.post('/api/v1/notification/:id/resend', async (req, res) => {
         try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload); successCount++; } catch(e) {}
     }
     await db.execute({ sql: 'UPDATE notification_history SET devices_sent = ? WHERE notification_id = ?', args: [successCount, newNotifId] });
-    res.json({ status: 201, success: true, new_notification_id: newNotifId, message: 'Resent successfully' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.delete('/api/v1/notification/:id', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const notifId = req.params.id;
-  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
-  try {
-    await db.execute({ sql: 'DELETE FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
-    res.json({ status: 001, success: true, message: 'Deleted' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/v1/notification/:id/cancel', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const notifId = req.params.id;
-  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
-  try {
-    await db.execute({ sql: 'UPDATE notification_history SET status = "cancelled" WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
 
 // ============================================================
-// 62. BACKGROUND SCHEDULER (FIXED)
+// 62. BACKGROUND SCHEDULER (FIXED BRACKETS)
 // ============================================================
 async function processScheduledNotifications() {
     try {
@@ -474,8 +454,18 @@ async function processScheduledNotifications() {
                 }
 
                 const payload = {
-                    title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200],
-                    data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' }
+                    title: notif.title, 
+                    body: notif.message, 
+                    icon: notif.icon_url || '/icon.png', 
+                    image: notif.image_url || '', 
+                    badge: '/badge.png', 
+                    vibrate: [200, 100, 200],
+                    data: { 
+                        url: '/', 
+                        notification_id: notif.notification_id, 
+                        button1_url: notif.button1_url || '', 
+                        button2_url: notif.button2_url || '' 
+                    }
                 };
 
                 const actions = [];
@@ -522,9 +512,8 @@ async function processScheduledNotifications() {
 setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
 
-
 // ============================================================
-// 63. SERVER START (RESTORED)
+// 63. SERVER START
 // ============================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
