@@ -571,81 +571,83 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 // ULTIMATE SCHEDULER (JAVASCRIPT TIME CHECK)
 // ============================================================
+
+
+// ============================================================
+// 12. START SERVER
+// ============================================================
+
+
+// ============================================================
+// BACKGROUND SCHEDULER (PERFECT STRING COMPARISON)
+// ============================================================
 async function processScheduledNotifications() {
     try {
-        // 1. Get ALL scheduled notifications, regardless of time
+        // Get current UTC time formatted exactly like the database: YYYY-MM-DD HH:MM:SS
+        const now = new Date();
+        const utcString = now.toISOString().replace('T', ' ').substring(0, 19);
+
+        // This query asks Turso to compare the strings directly
         const scheduled = await db.execute({ 
-            sql: "SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id, scheduled_for FROM notification_history WHERE status = 'scheduled'"
+            sql: "SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?", 
+            args: [utcString] 
         });
 
         if (!scheduled || !scheduled.rows || scheduled.rows.length === 0) return;
 
-        const now = new Date();
+        console.log(`⏰ Found ${scheduled.rows.length} notifications ready to send...`);
 
         for (const notif of scheduled.rows) {
             try {
-                // 2. Parse the scheduled time in JavaScript
-                if (!notif.scheduled_for) continue;
-                
-                // Turso might return it as a string or Date. We force it to a Date object.
-                let scheduledDate = new Date(notif.scheduled_for);
-                
-                // If the date is invalid, skip it
-                if (isNaN(scheduledDate.getTime())) continue;
+                const subscribers = await db.execute({ 
+                    sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', 
+                    args: [notif.api_key] 
+                });
 
-                // 3. Compare times in JavaScript
-                if (scheduledDate <= now) {
-                    console.log(`🚀 Time reached for ${notif.notification_id}. Sending...`);
-                    
-                    const subscribers = await db.execute({ 
-                        sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', 
-                        args: [notif.api_key] 
-                    });
+                if (subscribers.rows.length === 0) {
+                    await db.execute({ sql: "UPDATE notification_history SET status = 'failed' WHERE id = ?", args: [notif.id] });
+                    continue;
+                }
 
-                    if (subscribers.rows.length === 0) {
-                        await db.execute({ sql: "UPDATE notification_history SET status = 'failed' WHERE id = ?", args: [notif.id] });
-                        continue;
-                    }
+                const payload = {
+                    title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200],
+                    data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' }
+                };
 
-                    const payload = {
-                        title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200],
-                        data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' }
-                    };
+                const actions = [];
+                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
+                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
+                if (actions.length > 0) payload.actions = actions;
+                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
 
-                    const actions = [];
-                    if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
-                    if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
-                    if (actions.length > 0) payload.actions = actions;
-                    if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
+                const finalPayload = JSON.stringify(payload);
+                let successCount = 0;
 
-                    const finalPayload = JSON.stringify(payload);
-                    let successCount = 0;
-
-                    for (const sub of subscribers.rows) {
-                        try {
-                            await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, finalPayload);
-                            successCount++;
-                        } catch (err) {
-                            if (err.statusCode === 410 || err.statusCode === 404) {
-                                await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] });
-                            }
+                for (const sub of subscribers.rows) {
+                    try {
+                        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, finalPayload);
+                        successCount++;
+                    } catch (err) {
+                        if (err.statusCode === 410 || err.statusCode === 404) {
+                            await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] });
                         }
                     }
-
-                    await db.execute({ sql: "UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?", args: [successCount, notif.id] });
-                    console.log(`✅ Sent scheduled notification ${notif.notification_id} to ${successCount} devices`);
                 }
+
+                await db.execute({ sql: "UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?", args: [successCount, notif.id] });
+                console.log(`✅ Pushed ${notif.notification_id} to ${successCount} devices!`);
+
             } catch (err) {
-                console.error(`❌ Failed to send scheduled notification ${notif.id}:`, err);
+                console.error(`❌ Failed to send ${notif.id}:`, err);
                 await db.execute({ sql: "UPDATE notification_history SET status = 'failed' WHERE id = ?", args: [notif.id] });
             }
         }
     } catch (error) {
-        console.error('❌ Scheduler Error:', error);
+        console.error('❌ Scheduler Error:', error.message);
     }
 }
 
-setInterval(processScheduledNotifications, 15000);
+setInterval(processScheduledNotifications, 10000); // Runs every 10 seconds
 setTimeout(processScheduledNotifications, 5000);
 
 // ============================================================
