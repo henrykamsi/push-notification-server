@@ -581,6 +581,16 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 // BACKGROUND SCHEDULER (PERFECT STRING COMPARISON)
 // ============================================================
+
+
+// ============================================================
+// 12. START SERVER
+// ============================================================
+
+
+// ============================================================
+// BACKGROUND SCHEDULER (PERFECT STRING COMPARISON)
+// ============================================================
 async function processScheduledNotifications() {
     try {
         // Get current UTC time formatted exactly like the database: YYYY-MM-DD HH:MM:SS
