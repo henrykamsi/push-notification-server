@@ -836,6 +836,7 @@ app.delete('/api/v1/apps/:id', async (req, res) => {
 app.post('/api/v1/subscribe', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { endpoint, keys, device_type, device_name, region } = req.body;
+  console.log('📥 Incoming Subscription:', { endpoint: endpoint ? endpoint.substring(0, 20) + '...' : 'MISSING', region: region, hasKeys: !!keys });
   
   // 🛠️ SERVER-SIDE IP FALLBACK (If browser didn't send region)
   let finalRegion = region || 'unknown';
