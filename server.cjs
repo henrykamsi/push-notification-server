@@ -601,33 +601,39 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 // BACKGROUND SCHEDULER (PURE JAVASCRIPT)
 // ============================================================
+
+
+// ============================================================
+// 12. START SERVER
+// ============================================================
+
+
+// ============================================================
+// BACKGROUND SCHEDULER (PURE JAVASCRIPT)
+// ============================================================
 async function processScheduledNotifications() {
     try {
-        // Fetch ALL scheduled notifications (ignore database time)
+        // Fetch ALL scheduled notifications
         const scheduled = await db.execute("SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id, scheduled_for FROM notification_history WHERE status = 'scheduled'");
         
         if (!scheduled || !scheduled.rows || scheduled.rows.length === 0) return;
 
-        const now = new Date(); // Current Node.js time
+        const now = new Date(); // Current real time
 
         for (const notif of scheduled.rows) {
             try {
                 if (!notif.scheduled_for) continue;
                 
                 // Force the time string to be interpreted correctly by JS
-                // Replace space with 'T' and add 'Z' for UTC
                 let timeString = notif.scheduled_for;
                 if (timeString.includes(' ')) timeString = timeString.replace(' ', 'T') + 'Z';
                 
                 let scheduledDate = new Date(timeString);
-                if (isNaN(scheduledDate.getTime())) {
-                    console.log("❌ Invalid date format in DB:", notif.scheduled_for);
-                    continue;
-                }
+                if (isNaN(scheduledDate.getTime())) continue;
 
                 // Compare times in pure JavaScript
                 if (scheduledDate <= now) {
-                    console.log(`🚀 Time reached for ${notif.notification_id}. Sending...`);
+                    console.log(`🚀 Sending scheduled notification: ${notif.notification_id}`);
                     
                     const subscribers = await db.execute({ 
                         sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', 
@@ -665,7 +671,7 @@ async function processScheduledNotifications() {
                     }
 
                     await db.execute({ sql: "UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?", args: [successCount, notif.id] });
-                    console.log(`✅ Sent ${notif.notification_id} to ${successCount} devices!`);
+                    console.log(`✅ Pushed to ${successCount} devices!`);
                 }
             } catch (err) {
                 console.error(`❌ Failed to send ${notif.id}:`, err);
@@ -676,8 +682,8 @@ async function processScheduledNotifications() {
     }
 }
 
-setInterval(processScheduledNotifications, 5000); // Checks every 5 seconds
-setTimeout(processScheduledNotifications, 2000);
+setInterval(processScheduledNotifications, 10000); // Checks every 10 seconds
+setTimeout(processScheduledNotifications, 5000);
 
 // ============================================================
 // 12. START SERVER
