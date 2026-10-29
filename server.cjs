@@ -1366,7 +1366,7 @@ app.get('/api/v1/validate-key', async (req, res) => {
         name: proj.project_name,
         app_name: proj.app_name,
         plan: proj.plan || 'free',
-        push_quota_remaining: proj.push_quota || 0,
+        push_quota_remaining: parseInt(proj.push_quota) || 0,
         email_quota_remaining: proj.email_quota || 0,
         crack_signals: proj.crack_signals || 0
       }
