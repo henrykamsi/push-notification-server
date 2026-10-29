@@ -39,20 +39,19 @@ self.addEventListener("push", function(event) {
 
 self.addEventListener("notificationclick", function(event) {
     event.notification.close();
-
     const url = event.notification.data?.url || "/";
     const notificationId = event.notification.data?.notification_id;
     
     // 🔥 TRACK THE CLICK TO THE SERVER
     if (notificationId) {
-        fetch('https://push-notification-server-5tx2.onrender.com/api/v1/analytics/track', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ notification_id: notificationId, action: 'click' })
-        }).catch(err => console.log('Tracking failed', err));
+        event.waitUntil(
+            fetch('https://push-notification-server-5tx2.onrender.com/api/v1/analytics/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notification_id: notificationId, action: 'click' })
+            }).catch(err => console.log('Tracking failed', err))
+        );
     }
 
-    event.waitUntil(
-        clients.openWindow(url)
-    );
+    event.waitUntil(clients.openWindow(url));
 });
