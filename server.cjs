@@ -1121,7 +1121,9 @@ app.post('/api/v1/send', async (req, res) => {
       }
 
       if (custom_sound_url) {
+        // 🛠️ Custom Sound for Web Push (Android requires this specific format)
         payload.sound = custom_sound_url;
+        payload.data.custom_sound_url = custom_sound_url;
       }
 
       const finalPayload = JSON.stringify(payload);
