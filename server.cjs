@@ -574,6 +574,9 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 async function processScheduledNotifications() {
     try {
         // 1. Get ALL scheduled notifications, regardless of time
+        console.log("🔍 CHECKING SCHEDULED ROWS:", scheduled ? scheduled.rows.length : 0);
+        if (scheduled && scheduled.rows) console.log("Times:", scheduled.rows.map(r => r.scheduled_for));
+        console.log("🕒 CURRENT SERVER UTC TIME:", new Date().toISOString());
         const scheduled = await db.execute({ 
             sql: "SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id, scheduled_for FROM notification_history WHERE status = 'scheduled'"
         });
