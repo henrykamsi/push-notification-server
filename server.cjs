@@ -447,85 +447,9 @@ app.post('/api/v1/notification/:id/cancel', async (req, res) => {
   if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
   try {
     await db.execute({ sql: 'UPDATE notification_history SET status = "cancelled" WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
-    res.json({ status: 001, success: true, message: 'Cancelled' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 
 // ============================================================
-// 11. SCHEDULED NOTIFICATION PROCESSOR (Runs every 30s)
-// ============================================================
-                const payload = { title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200], data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' } };
-                const actions = [];
-                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
-                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
-                if (actions.length > 0) payload.actions = actions;
-                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
-                
-                let successCount = 0;
-                for (const sub of subscribers.rows) {
-                    try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload)); successCount++; } 
-                    catch (err) { if (err.statusCode === 410 || err.statusCode === 404) await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] }); }
-                }
-                await db.execute({ sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`, args: [successCount, notif.id] });
-            } catch (err) { await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] }); }
-        }
-    } catch (error) { console.error('Scheduler error:', error); }
-}
-
-setTimeout(processScheduledNotifications, 5000);
-
-// ============================================================
-// 12. START SERVER
-// ============================================================
-const PORT = process.env.PORT || 5000;
-
-// ============================================================
-// 59. GOOGLE AUTHENTICATION (BULLETPROOF)
-// ============================================================
-app.post('/api/v1/auth/google', async (req, res) => {
-  const { token } = req.body;
-  if (!token) return res.status(400).json({ status: 400, success: false, message: 'Token required' });
-  
-  try {
-    const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client('136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com');
-    
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: '136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com'
-    });
-    
-    const payload = ticket.getPayload();
-    const { email, name } = payload;
-    
-    const existingUser = await db.execute({ sql: 'SELECT id, name, email, plan, blocked FROM users WHERE email = ?', args: [email] });
-    
-    if (existingUser.rows.length > 0) {
-      const user = existingUser.rows[0];
-      if (user.blocked === 1) return res.json({ status: 403, success: false, message: 'Account blocked.' });
-      
-      const sessionToken = crypto.randomBytes(32).toString('hex');
-      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
-      
-      return res.json({ status: 200, success: true, message: 'Login successful', user_id: user.id, name: user.name || name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
-    } else {
-      await db.execute({ sql: 'INSERT INTO users (name, email, password_hash, traffic) VALUES (?, ?, ?, ?)', args: [name || 'Google User', email, 'google_oauth_' + Date.now(), 'google'] });
-      const newUser = await db.execute({ sql: 'SELECT id, name, email, plan FROM users WHERE email = ?', args: [email] });
-      const user = newUser.rows[0];
-      const sessionToken = crypto.randomBytes(32).toString('hex');
-      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
-      
-      return res.json({ status: 201, success: true, message: 'Account created and logged in', user_id: user.id, name: user.name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
-    }
-  } catch (error) {
-    console.error('Google Auth Error:', error.message);
-    return res.status(500).json({ status: 500, success: false, message: 'Google auth failed: ' + error.message });
-  }
-});
-
-
-// ============================================================
-// 61. BACKGROUND SCHEDULER (FORCED)
+// 62. BACKGROUND SCHEDULER (FIXED)
 // ============================================================
 async function processScheduledNotifications() {
     try {
@@ -536,8 +460,6 @@ async function processScheduledNotifications() {
         });
 
         if (scheduled.rows.length === 0) return;
-
-        console.log(`⏰ Processing ${scheduled.rows.length} scheduled notifications...`);
 
         for (const notif of scheduled.rows) {
             try {
@@ -557,10 +479,18 @@ async function processScheduledNotifications() {
                 };
 
                 const actions = [];
-                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
-                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
-                if (actions.length > 0) payload.actions = actions;
-                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
+                if (notif.button1_name && notif.button1_url) {
+                    actions.push({ action: 'button1', title: notif.button1_name });
+                }
+                if (notif.button2_name && notif.button2_url) {
+                    actions.push({ action: 'button2', title: notif.button2_name });
+                }
+                if (actions.length > 0) {
+                    payload.actions = actions;
+                }
+                if (notif.custom_sound_url) {
+                    payload.sound = notif.custom_sound_url;
+                }
 
                 const finalPayload = JSON.stringify(payload);
                 let successCount = 0;
@@ -592,7 +522,3 @@ async function processScheduledNotifications() {
 setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
 
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
