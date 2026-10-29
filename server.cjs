@@ -1733,9 +1733,7 @@ app.get('/api/v1/analytics/countries', async (req, res) => {
 // ============================================================
 // 56. TRACK CLICK / OPEN (FIXED CLEAN)
 // ============================================================
-app.post('/api/v1/analytics/track', async (req, res) => {
-  const { notification_id, action } = req.body;
-  if (!notification_id) return res.status(400).json({ error: 'Missing ID' });
+
   try {
     if (action === 'click') {
       await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1, views = views + 1 WHERE notification_id = ?', args: [notification_id] });
@@ -1829,4 +1827,20 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   } catch (globalError) {
     return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + globalError.message });
   }
+});
+
+// ============================================================
+// 60. TRACK CLICKS (CLEAN)
+// ============================================================
+app.post('/api/v1/analytics/track', async (req, res) => {
+  const { notification_id, action } = req.body;
+  if (!notification_id) return res.status(400).json({ error: 'Missing ID' });
+  try {
+    if (action === 'click') {
+      await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1, views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    } else if (action === 'open') {
+      await db.execute({ sql: 'UPDATE notification_history SET views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
