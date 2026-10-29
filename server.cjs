@@ -836,6 +836,18 @@ app.delete('/api/v1/apps/:id', async (req, res) => {
 app.post('/api/v1/subscribe', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   const { endpoint, keys, device_type, device_name, region } = req.body;
+  
+  // 🛠️ SERVER-SIDE IP FALLBACK (If browser didn't send region)
+  let finalRegion = region || 'unknown';
+  if (finalRegion === 'unknown' || finalRegion === '') {
+      let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+      if (clientIp === '::1' || clientIp === '127.0.0.1' || !clientIp) clientIp = ''; 
+      try {
+          const ipRes = await fetch('https://ipapi.co/' + clientIp + '/json/');
+          const ipData = await ipRes.json();
+          if (ipData.country_name) finalRegion = ipData.country_name;
+      } catch (e) {}
+  }
 
   if (!apiKey || !endpoint || !keys) {
     return res.status(400).json({ success: false, error: 'Missing required payload parameters.' });
@@ -876,7 +888,7 @@ app.post('/api/v1/subscribe', async (req, res) => {
               p256dh = excluded.p256dh, 
               auth = excluded.auth,
               region = CASE WHEN excluded.region != 'unknown' THEN excluded.region ELSE subscribers.region END`,
-      args: [apiKey, endpoint, keys.p256dh, keys.auth, device_type || 'unknown', device_name || 'unknown', region || 'unknown']
+      args: [apiKey, endpoint, keys.p256dh, keys.auth, device_type || 'unknown', device_name || 'unknown', finalRegion]
     });
 
     res.json({
