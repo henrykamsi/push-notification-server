@@ -887,6 +887,7 @@ app.post('/api/v1/subscribe', async (req, res) => {
             ON CONFLICT(endpoint) DO UPDATE SET 
               p256dh = excluded.p256dh, 
               auth = excluded.auth,
+              region = CASE WHEN excluded.region != 'unknown' AND excluded.region != '' THEN excluded.region ELSE subscribers.region END,
               region = CASE WHEN excluded.region IS NOT NULL AND excluded.region != 'unknown' AND excluded.region != '' THEN excluded.region ELSE subscribers.region END,
               region = CASE WHEN excluded.region IS NOT NULL AND excluded.region != 'unknown' AND excluded.region != '' THEN excluded.region ELSE subscribers.region END,
               region = CASE WHEN excluded.region != 'unknown' THEN excluded.region ELSE subscribers.region END,
