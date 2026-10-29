@@ -138,6 +138,36 @@ app.post('/api/v1/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
 });
 
+app.post('/api/v1/auth/google', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ status: 400, success: false, message: 'Token required' });
+  try {
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client('136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com');
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: '136019833914-lhou851uparpfjd4vu0hp5e7mfpqf134.apps.googleusercontent.com'
+    });
+    const payload = ticket.getPayload();
+    const { email, name } = payload;
+    const existingUser = await db.execute({ sql: 'SELECT id, name, email, plan, blocked FROM users WHERE email = ?', args: [email] });
+    if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+      if (user.blocked === 1) return res.json({ status: 403, success: false, message: 'Account blocked.' });
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
+      return res.json({ status: 200, success: true, message: 'Login successful', user_id: user.id, name: user.name || name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
+    } else {
+      await db.execute({ sql: 'INSERT INTO users (name, email, password_hash, traffic) VALUES (?, ?, ?, ?)', args: [name || 'Google User', email, 'google_oauth_' + Date.now(), 'google'] });
+      const newUser = await db.execute({ sql: 'SELECT id, name, email, plan FROM users WHERE email = ?', args: [email] });
+      const user = newUser.rows[0];
+      const sessionToken = crypto.randomBytes(32).toString('hex');
+      await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.id, sessionToken] });
+      return res.json({ status: 201, success: true, message: 'Account created and logged in', user_id: user.id, name: user.name, email: user.email, plan: user.plan || 'free', session_token: sessionToken });
+    }
+  } catch (error) { res.status(500).json({ status: 500, success: false, message: 'Google auth failed: ' + error.message }); }
+});
+
 app.get('/api/v1/account/profile', async (req, res) => {
   const sessionToken = req.headers['x-session-token'];
   if (!sessionToken) return res.status(401).json({ status: 401, message: 'Session required' });
@@ -146,6 +176,29 @@ app.get('/api/v1/account/profile', async (req, res) => {
     if (user.rows.length === 0) return res.status(404).json({ status: 404, message: 'User not found' });
     res.json({ status: 200, success: true, user: user.rows[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/v1/account/delete', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  const { api_key, username, password, confirm } = req.body;
+  if (!sessionToken) return res.status(401).json({ status: 401, success: false, message: 'Session token required' });
+  if (confirm !== 'yes') return res.status(400).json({ status: 400, success: false, message: 'Confirmation required' });
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ status: 401, success: false, message: 'Invalid or expired session' });
+    const userId = userRes.rows[0].user_id;
+    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const verifyUser = await db.execute({ sql: 'SELECT id FROM users WHERE id = ? AND password_hash = ?', args: [userId, passwordHash] });
+    if (verifyUser.rows.length === 0) return res.status(403).json({ status: 403, success: false, message: 'Incorrect password' });
+    await db.execute({ sql: 'DELETE FROM subscribers WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM notification_history WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM templates WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM webhooks WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM projects WHERE user_id = ?', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] });
+    res.json({ status: 001, success: true, message: 'Account and all associated data deleted permanently' });
+  } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
 });
 
 // ============================================================
@@ -278,8 +331,18 @@ app.get('/api/v1/analytics/range', async (req, res) => {
   } catch (e) { res.status(500).json({ status: 500, message: e.message }); }
 });
 
+app.get('/api/v1/analytics/notification/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key']; const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    const result = await db.execute({ sql: 'SELECT title, devices_sent, views, clicks, button1_clicks, button2_clicks, status, sent_at FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    if (result.rows.length === 0) return res.status(404).json({ status: 404, message: 'Notification not found' });
+    res.json({ status: 200, success: true, notification: result.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ============================================================
-// 8. SEND NOTIFICATION (With Schedule & Quota Fix)
+// 8. SEND NOTIFICATION
 // ============================================================
 app.post('/api/v1/send', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
@@ -348,8 +411,7 @@ app.post('/api/v1/send', async (req, res) => {
 });
 
 // ============================================================
-// 9. NOTIFICATIONS HISTORY & SCHEDULED
-// ============================================================
+// 9. NOTIFICATIONS HISTORY & SCHEDULED// ============================================================
 app.get('/api/v1/notifications/list', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
   if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
@@ -365,6 +427,44 @@ app.get('/api/v1/notifications/scheduled', async (req, res) => {
   try {
     const logs = await db.execute({ sql: 'SELECT notification_id, title, message, scheduled_for FROM notification_history WHERE api_key = ? AND status = "scheduled" ORDER BY scheduled_for ASC', args: [apiKey] });
     res.json({ status: 200, success: true, scheduled: logs.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/v1/notification/:id/resend', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key']; const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    const orig = await db.execute({ sql: 'SELECT title, message FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    if (orig.rows.length === 0) return res.status(404).json({ status: 404, message: 'Original notification not found' });
+    const { title, message } = orig.rows[0];
+    const newNotifId = `sendly_msg_${Date.now()}`;
+    await db.execute({ sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status) VALUES (?, ?, ?, ?, "sent")', args: [apiKey, newNotifId, title, message] });
+    const subs = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [apiKey] });
+    let successCount = 0;
+    const payload = JSON.stringify({ title, body: message, data: { notification_id: newNotifId } });
+    for (const sub of subs.rows) {
+        try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload); successCount++; } catch(e) {}
+    }
+    await db.execute({ sql: 'UPDATE notification_history SET devices_sent = ? WHERE notification_id = ?', args: [successCount, newNotifId] });
+    res.json({ status: 201, success: true, new_notification_id: newNotifId, message: 'Resent successfully' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/v1/notification/:id', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key']; const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    await db.execute({ sql: 'DELETE FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    res.json({ status: 001, success: true, message: 'Deleted' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/v1/notification/:id/cancel', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key']; const notifId = req.params.id;
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    await db.execute({ sql: 'UPDATE notification_history SET status = "cancelled" WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
+    res.json({ status: 001, success: true, message: 'Cancelled' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -391,129 +491,40 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   } catch (e) { return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + e.message }); }
 });
 
-
 // ============================================================
-// 20. MISSING STATS ENDPOINTS
-// ============================================================
-app.get('/api/v1/analytics/notification/:id', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const notifId = req.params.id;
-  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
-  try {
-    const result = await db.execute({ sql: 'SELECT title, devices_sent, views, clicks, button1_clicks, button2_clicks, status, sent_at FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
-    if (result.rows.length === 0) return res.status(404).json({ status: 404, message: 'Notification not found' });
-    res.json({ status: 200, success: true, notification: result.rows[0] });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/v1/notification/:id/resend', async (req, res) => {
-  const apiKey = req.headers['x-sendly-key'];
-  const notifId = req.params.id;
-  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
-  try {
-    const orig = await db.execute({ sql: 'SELECT title, message FROM notification_history WHERE notification_id = ? AND api_key = ?', args: [notifId, apiKey] });
-    if (orig.rows.length === 0) return res.status(404).json({ status: 404, message: 'Original notification not found' });
-    const { title, message } = orig.rows[0];
-    const newNotifId = `sendly_msg_${Date.now()}`;
-    
-    // Create new history record
-    await db.execute({ sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status) VALUES (?, ?, ?, ?, "sent")', args: [apiKey, newNotifId, title, message] });
-    
-    // Send to subscribers
-    const subs = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [apiKey] });
-    let successCount = 0;
-    const payload = JSON.stringify({ title, body: message, data: { notification_id: newNotifId } });
-    for (const sub of subs.rows) {
-        try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload); successCount++; } catch(e) {}
-    }
-    await db.execute({ sql: 'UPDATE notification_history SET devices_sent = ? WHERE notification_id = ?', args: [successCount, newNotifId] });
-
-// ============================================================
-// 62. BACKGROUND SCHEDULER (FIXED BRACKETS)
+// 11. SCHEDULED NOTIFICATION PROCESSOR
 // ============================================================
 async function processScheduledNotifications() {
     try {
         const now = new Date().toISOString();
-        const scheduled = await db.execute({ 
-            sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?`, 
-            args: [now] 
-        });
-
+        const scheduled = await db.execute({ sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?`, args: [now] });
         if (scheduled.rows.length === 0) return;
-
         for (const notif of scheduled.rows) {
             try {
-                const subscribers = await db.execute({ 
-                    sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', 
-                    args: [notif.api_key] 
-                });
-
-                if (subscribers.rows.length === 0) {
-                    await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] });
-                    continue;
-                }
-
-                const payload = {
-                    title: notif.title, 
-                    body: notif.message, 
-                    icon: notif.icon_url || '/icon.png', 
-                    image: notif.image_url || '', 
-                    badge: '/badge.png', 
-                    vibrate: [200, 100, 200],
-                    data: { 
-                        url: '/', 
-                        notification_id: notif.notification_id, 
-                        button1_url: notif.button1_url || '', 
-                        button2_url: notif.button2_url || '' 
-                    }
-                };
-
+                const subscribers = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [notif.api_key] });
+                if (subscribers.rows.length === 0) { await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] }); continue; }
+                const payload = { title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200], data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' } };
                 const actions = [];
-                if (notif.button1_name && notif.button1_url) {
-                    actions.push({ action: 'button1', title: notif.button1_name });
-                }
-                if (notif.button2_name && notif.button2_url) {
-                    actions.push({ action: 'button2', title: notif.button2_name });
-                }
-                if (actions.length > 0) {
-                    payload.actions = actions;
-                }
-                if (notif.custom_sound_url) {
-                    payload.sound = notif.custom_sound_url;
-                }
-
-                const finalPayload = JSON.stringify(payload);
+                if (notif.button1_name && notif.button1_url) actions.push({ action: 'button1', title: notif.button1_name });
+                if (notif.button2_name && notif.button2_url) actions.push({ action: 'button2', title: notif.button2_name });
+                if (actions.length > 0) payload.actions = actions;
+                if (notif.custom_sound_url) payload.sound = notif.custom_sound_url;
+                
                 let successCount = 0;
-
                 for (const sub of subscribers.rows) {
-                    try {
-                        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, finalPayload);
-                        successCount++;
-                    } catch (err) {
-                        if (err.statusCode === 410 || err.statusCode === 404) {
-                            await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] });
-                        }
-                    }
+                    try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload)); successCount++; } 
+                    catch (err) { if (err.statusCode === 410 || err.statusCode === 404) await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] }); }
                 }
-
                 await db.execute({ sql: `UPDATE notification_history SET status = 'sent', sent_at = datetime('now'), devices_sent = ? WHERE id = ?`, args: [successCount, notif.id] });
-                console.log(`✅ Scheduled notification ${notif.notification_id} sent to ${successCount} devices`);
-
-            } catch (err) {
-                console.error(`❌ Failed to send scheduled notification ${notif.id}:`, err);
-                await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] });
-            }
+            } catch (err) { await db.execute({ sql: `UPDATE notification_history SET status = 'failed' WHERE id = ?`, args: [notif.id] }); }
         }
-    } catch (error) {
-        console.error('❌ Scheduled notification processor error:', error);
-    }
+    } catch (error) { console.error('Scheduler error:', error); }
 }
-
 setInterval(processScheduledNotifications, 30000);
 setTimeout(processScheduledNotifications, 5000);
 
 // ============================================================
-// 63. SERVER START
+// 12. START SERVER
 // ============================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
