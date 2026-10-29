@@ -1654,6 +1654,55 @@ app.post('/api/v1/account/delete', async (req, res) => {
   }
 });
 
+
+// ============================================================
+// 54. PROFILE ENDPOINT
+// ============================================================
+app.get('/api/v1/account/profile', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  if (!sessionToken) return res.status(401).json({ status: 401, message: 'Session required' });
+  try {
+    const user = await db.execute({
+      sql: 'SELECT name, surname, email, plan FROM users WHERE id IN (SELECT user_id FROM sessions WHERE token = ?)',
+      args: [sessionToken]
+    });
+    if (user.rows.length === 0) return res.status(404).json({ status: 404, message: 'User not found' });
+    res.json({ status: 200, success: true, user: user.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================
+// 55. ANALYTICS - TOP COUNTRIES & CLICKS
+// ============================================================
+app.get('/api/v1/analytics/countries', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  if (!apiKey) return res.status(401).json({ status: 401, message: 'API key required' });
+  try {
+    // Count clicks and opens grouped by region (country)
+    const stats = await db.execute({
+      sql: `SELECT region as country, COUNT(*) as clicks FROM subscribers WHERE api_key = ? AND region IS NOT NULL GROUP BY region ORDER BY clicks DESC LIMIT 5`,
+      args: [apiKey]
+    });
+    res.json({ status: 200, success: true, top_countries: stats.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================
+// 56. TRACK CLICK / OPEN
+// ============================================================
+app.post('/api/v1/analytics/track', async (req, res) => {
+  const { notification_id, action } = req.body; // action = 'click' or 'open'
+  if (!notification_id) return res.status(400).json({ error: 'Missing ID' });
+  try {
+    if (action === 'click') {
+      await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1 WHERE notification_id = ?', args: [notification_id] });
+    } else if (action === 'open') {
+      await db.execute({ sql: 'UPDATE notification_history SET views = views + 1 WHERE notification_id = ?', args: [notification_id] });
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ============================================================
 // 25. SERVER START
 // ============================================================
