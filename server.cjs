@@ -783,6 +783,7 @@ app.get('/api/v1/apps/list', async (req, res) => {
 // ============================================================
 app.delete('/api/v1/apps/:id', async (req, res) => {
   const sessionToken = req.headers['x-session-token'];
+  const apiKeyHeader = req.headers['x-sendly-key'];
   const appId = req.params.id;
 
   if (!sessionToken) {
@@ -801,9 +802,10 @@ app.delete('/api/v1/apps/:id', async (req, res) => {
 
     const userId = user.rows[0].user_id;
 
+    // Allow deletion if user owns it OR if the api key matches
     const project = await db.execute({
-      sql: 'SELECT id FROM projects WHERE id = ? AND user_id = ?',
-      args: [appId, userId]
+      sql: 'SELECT id FROM projects WHERE id = ? AND (user_id = ? OR api_key = ?)',
+      args: [appId, userId, apiKeyHeader || '']
     });
 
     if (project.rows.length === 0) {
