@@ -1593,6 +1593,66 @@ app.get('/api/v1/logs/notifications', async (req, res) => {
 });
 
 // ============================================================
+// 24.5 DELETE ACCOUNT
+// ============================================================
+app.post('/api/v1/account/delete', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  const { api_key, username, password, confirm } = req.body;
+
+  if (!sessionToken) {
+    return res.status(401).json({ status: 401, success: false, message: 'Session token required' });
+  }
+
+  if (confirm !== 'yes') {
+    return res.status(400).json({ status: 400, success: false, message: 'Confirmation required' });
+  }
+
+  try {
+    // 1. Verify the session and get the user ID
+    const userRes = await db.execute({
+      sql: 'SELECT user_id FROM sessions WHERE token = ?',
+      args: [sessionToken]
+    });
+
+    if (userRes.rows.length === 0) {
+      return res.status(401).json({ status: 401, success: false, message: 'Invalid or expired session' });
+    }
+
+    const userId = userRes.rows[0].user_id;
+
+    // 2. Verify the user's password
+    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const verifyUser = await db.execute({
+      sql: 'SELECT id FROM users WHERE id = ? AND password_hash = ?',
+      args: [userId, passwordHash]
+    });
+
+    if (verifyUser.rows.length === 0) {
+      return res.status(403).json({ status: 403, success: false, message: 'Incorrect password' });
+    }
+
+    // 3. Delete all associated data
+    await db.execute({ sql: 'DELETE FROM subscribers WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM notification_history WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM templates WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM webhooks WHERE api_key IN (SELECT api_key FROM projects WHERE user_id = ?)', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM projects WHERE user_id = ?', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM sessions WHERE user_id = ?', args: [userId] });
+    await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [userId] });
+
+    res.json({
+      status: 001,
+      success: true,
+      message: 'Account and all associated data deleted permanently'
+    });
+
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ status: 500, success: false, error: error.message });
+  }
+});
+
+// ============================================================
 // 25. SERVER START
 // ============================================================
 const PORT = process.env.PORT || 5000;
