@@ -530,3 +530,50 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+// ============================================================
+// 64. MISSING ENDPOINTS (RESTORED)
+// ============================================================
+app.get('/api/v1/validate-key', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  if (!apiKey) return res.json({ status: 401, success: false, message: 'API key is required' });
+  try {
+    const project = await db.execute({ sql: 'SELECT project_name, app_name, api_key, plan, blocked, push_quota, email_quota, crack_signals, crack_locked_until FROM projects WHERE api_key = ?', args: [apiKey] });
+    if (project.rows.length === 0) return res.json({ status: 701, success: false, message: 'No such API key' });
+    const proj = project.rows[0];
+    if (proj.blocked === 1) return res.json({ status: 403, success: false, message: 'API key has been blocked.' });
+    res.json({
+      status: 200, success: true, message: 'API key is active',
+      project: {
+        name: proj.project_name, app_name: proj.app_name, plan: proj.plan || 'free',
+        push_quota_remaining: parseInt(proj.push_quota) || 0,
+        email_quota_remaining: parseInt(proj.email_quota) || 0,
+        crack_signals: proj.crack_signals || 0
+      }
+    });
+  } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
+});
+
+app.post('/api/v1/verify-widget', async (req, res) => {
+  try {
+    let { api_key, website_url } = req.body;
+    if (!api_key) return res.json({ status: 400, success: false, message: 'API key required' });
+    if (!website_url) return res.json({ status: 400, success: false, message: 'Website URL required' });
+    if (!website_url.startsWith('http://') && !website_url.startsWith('https://')) return res.json({ status: 400, success: false, message: '❌ Invalid URL. You MUST include https:// or http://' });
+    
+    const project = await db.execute({ sql: 'SELECT project_name FROM projects WHERE api_key = ?', args: [api_key] });
+    if (project.rows.length === 0) return res.json({ status: 404, success: false, message: '❌ Invalid API Key' });
+
+    let htmlContent = '';
+    try {
+      const response = await fetch(website_url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(10000) });
+      if (!response.ok) return res.json({ status: 400, success: false, message: '❌ Could not reach website. Status: ' + response.status });
+      htmlContent = await response.text();
+    } catch (e) { return res.json({ status: 400, success: false, message: '❌ Website is offline or URL is invalid.' }); }
+
+    if (!htmlContent.includes(api_key)) return res.json({ status: 404, success: false, message: '❌ Config NOT found on this website.', suggestion: 'The API key was not found in the HTML.' });
+
+    const subs = await db.execute({ sql: 'SELECT COUNT(*) as count FROM subscribers WHERE api_key = ?', args: [api_key] });
+    return res.json({ status: 200, success: true, message: '✅ Widget Verified!', project_name: project.rows[0].project_name, subscribers: subs.rows[0].count || 0 });
+  } catch (e) { return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + e.message }); }
+});
