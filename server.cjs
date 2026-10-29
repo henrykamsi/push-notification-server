@@ -496,8 +496,15 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 async function processScheduledNotifications() {
     try {
-        const now = new Date().toISOString();
-        const scheduled = await db.execute({ sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?`, args: [now] });
+        const now = new Date();
+        // Format as YYYY-MM-DD HH:MM:SS in LOCAL time to match the DB insertion
+        const localNow = now.getFullYear() + '-' + 
+                         String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                         String(now.getDate()).padStart(2, '0') + ' ' + 
+                         String(now.getHours()).padStart(2, '0') + ':' + 
+                         String(now.getMinutes()).padStart(2, '0') + ':' + 
+                         String(now.getSeconds()).padStart(2, '0');
+        const scheduled = await db.execute({ sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id FROM notification_history WHERE status = 'scheduled' AND scheduled_for <= ?`, args: [localNow] });
         if (scheduled.rows.length === 0) return;
         for (const notif of scheduled.rows) {
             try {
