@@ -1708,9 +1708,11 @@ app.get('/api/v1/analytics/countries', async (req, res) => {
 });
 
 // ============================================================
-// 56. TRACK CLICK / OPEN
+// 56. TRACK CLICK / OPEN (FIXED)
 // ============================================================
-
+app.post('/api/v1/analytics/track', async (req, res) => {
+  const { notification_id, action } = req.body;
+  if (!notification_id) return res.status(400).json({ error: 'Missing ID' });
   try {
     if (action === 'click') {
       await db.execute({ sql: 'UPDATE notification_history SET clicks = clicks + 1, views = views + 1 WHERE notification_id = ?', args: [notification_id] });
