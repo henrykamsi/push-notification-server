@@ -551,20 +551,33 @@ app.post('/api/v1/verify-widget', async (req, res) => {
 // ============================================================
 // BACKGROUND SCHEDULER (FIXED FOR TURSO UTC)
 // ============================================================
+
+
+// ============================================================
+// 12. START SERVER
+// ============================================================
+
+
+// ============================================================
+// BACKGROUND SCHEDULER (NODE.JS TIME COMPARISON)
+// ============================================================
 async function processScheduledNotifications() {
     try {
-        // We use SQLite's datetime('now') directly in the query to ensure it compares UTC to UTC perfectly.
+        // Generate exact UTC string in the format Turso uses: YYYY-MM-DD HH:MM:SS
+        const now = new Date();
+        const utcString = now.toISOString().replace('T', ' ').substring(0, 19);
+
         const scheduled = await db.execute({ 
             sql: `SELECT id, api_key, title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url, custom_sound_url, notification_id 
                   FROM notification_history 
                   WHERE status = 'scheduled' 
-                  AND datetime(scheduled_for) <= datetime('now')`, 
-            args: [] 
+                  AND scheduled_for <= ?`, 
+            args: [utcString] 
         });
 
         if (!scheduled || !scheduled.rows || scheduled.rows.length === 0) return;
 
-        console.log(`⏰ Processing ${scheduled.rows.length} scheduled notifications...`);
+        console.log(`⏰ Processing ${scheduled.rows.length} scheduled notifications at ${utcString}...`);
 
         for (const notif of scheduled.rows) {
             try {
@@ -579,18 +592,8 @@ async function processScheduledNotifications() {
                 }
 
                 const payload = {
-                    title: notif.title, 
-                    body: notif.message, 
-                    icon: notif.icon_url || '/icon.png', 
-                    image: notif.image_url || '', 
-                    badge: '/badge.png', 
-                    vibrate: [200, 100, 200],
-                    data: { 
-                        url: '/', 
-                        notification_id: notif.notification_id, 
-                        button1_url: notif.button1_url || '', 
-                        button2_url: notif.button2_url || '' 
-                    }
+                    title: notif.title, body: notif.message, icon: notif.icon_url || '/icon.png', image: notif.image_url || '', badge: '/badge.png', vibrate: [200, 100, 200],
+                    data: { url: '/', notification_id: notif.notification_id, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' }
                 };
 
                 const actions = [];
@@ -626,7 +629,7 @@ async function processScheduledNotifications() {
     }
 }
 
-setInterval(processScheduledNotifications, 30000);
+setInterval(processScheduledNotifications, 15000);
 setTimeout(processScheduledNotifications, 5000);
 
 // ============================================================
