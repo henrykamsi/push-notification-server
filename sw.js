@@ -39,9 +39,23 @@ self.addEventListener("push", function(event) {
 
 self.addEventListener("notificationclick", function(event) {
     event.notification.close();
-    const url = event.notification.data?.url || "/";
-    const notificationId = event.notification.data?.notification_id;
     
+    // Get the data we sent from the server
+    const data = event.notification.data || {};
+    const action = event.action;
+    
+    // Default URL is the website URL (or the first button if no website URL is set)
+    let targetUrl = data.url || "/";
+
+    // 🛠️ BUTTON LOGIC: If they clicked a specific button, use that button's URL
+    if (action === "button1" && data.button1_url) {
+        targetUrl = data.button1_url;
+    } else if (action === "button2" && data.button2_url) {
+        targetUrl = data.button2_url;
+    }
+
+    // 🔥 TRACK THE CLICK TO THE SERVER
+    const notificationId = data.notification_id;
     if (notificationId) {
         event.waitUntil(
             fetch('https://push-notification-server-5tx2.onrender.com/api/v1/analytics/track', {
@@ -52,5 +66,6 @@ self.addEventListener("notificationclick", function(event) {
         );
     }
 
-    event.waitUntil(clients.openWindow(url));
+    // Open the correct link
+    event.waitUntil(clients.openWindow(targetUrl));
 });

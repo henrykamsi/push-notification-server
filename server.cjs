@@ -1102,8 +1102,10 @@ app.post('/api/v1/send', async (req, res) => {
         badge: '/badge.png',
         vibrate: [200, 100, 200],
         data: {
-          url: button1_url || '/',
-          notification_id: notificationId
+          url: '/', // Default click goes to homepage
+          notification_id: notificationId,
+          button1_url: button1_url || '',
+          button2_url: button2_url || ''
         }
       };
 
