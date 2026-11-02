@@ -712,3 +712,74 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+// ============================================================
+// 65. RESEND NOTIFICATION (FIXED WITH QUOTA DEDUCTION)
+// ============================================================
+app.post('/api/v1/notification/:id/resend', async (req, res) => {
+  const apiKey = req.headers['x-sendly-key'];
+  const notifId = req.params.id;
+  
+  if (!apiKey) return res.status(401).json({ status: 401, success: false, message: 'API key required' });
+
+  try {
+    // 1. Get the original notification
+    const orig = await db.execute({ 
+        sql: 'SELECT title, message, image_url, icon_url, button1_name, button1_url, button2_name, button2_url FROM notification_history WHERE notification_id = ? AND api_key = ?', 
+        args: [notifId, apiKey] 
+    });
+    if (orig.rows.length === 0) return res.status(404).json({ status: 404, success: false, message: 'Notification not found' });
+    
+    const notif = orig.rows[0];
+
+    // 2. Check the quota before sending
+    const project = await db.execute({ sql: 'SELECT push_quota FROM projects WHERE api_key = ?', args: [apiKey] });
+    if (project.rows.length === 0) return res.status(401).json({ status: 401, success: false, message: 'Invalid API Key' });
+    
+    const currentQuota = parseInt(project.rows[0].push_quota) || 0;
+    if (currentQuota <= 0) return res.status(702).json({ status: 702, success: false, message: 'Quota exhausted. Please upgrade.' });
+
+    // 3. Get subscribers
+    const subs = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [apiKey] });
+    if (subs.rows.length === 0) return res.json({ status: 200, success: true, message: 'No subscribers to resend to.' });
+
+    // 4. Send the push
+    const newNotifId = `resend_${Date.now()}`;
+    const payload = {
+        title: notif.title,
+        body: notif.message,
+        icon: notif.icon_url || '/icon.png',
+        image: notif.image_url || '',
+        badge: '/badge.png',
+        vibrate: [200, 100, 200],
+        data: { url: '/', notification_id: newNotifId, button1_url: notif.button1_url || '', button2_url: notif.button2_url || '' }
+    };
+
+    let successCount = 0;
+    for (const sub of subs.rows) {
+        try {
+            await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload));
+            successCount++;
+        } catch (e) {
+            if (e.statusCode === 410 || e.statusCode === 404) {
+                await db.execute({ sql: 'DELETE FROM subscribers WHERE endpoint = ?', args: [sub.endpoint] });
+            }
+        }
+    }
+
+    // 5. Save new history & deduct quota
+    await db.execute({ 
+        sql: "INSERT INTO notification_history (api_key, notification_id, title, message, image_url, icon_url, status, devices_sent) VALUES (?, ?, ?, ?, ?, ?, 'sent', ?)", 
+        args: [apiKey, newNotifId, notif.title, notif.message, notif.image_url || '', notif.icon_url || '', successCount] 
+    });
+    
+    const newQuota = currentQuota - successCount;
+    await db.execute({ sql: 'UPDATE projects SET push_quota = ? WHERE api_key = ?', args: [newQuota, apiKey] });
+
+    res.json({ status: 201, success: true, message: 'Resent successfully!', new_notification_id: newNotifId });
+
+  } catch (error) {
+    console.error('Resend error:', error);
+    res.status(500).json({ status: 500, success: false, message: error.message });
+  }
+});
