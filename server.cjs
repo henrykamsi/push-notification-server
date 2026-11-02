@@ -438,7 +438,7 @@ app.post('/api/v1/notification/:id/resend', async (req, res) => {
     if (orig.rows.length === 0) return res.status(404).json({ status: 404, message: 'Original notification not found' });
     const { title, message } = orig.rows[0];
     const newNotifId = `sendly_msg_${Date.now()}`;
-    await db.execute({ sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status) VALUES (?, ?, ?, ?, "sent")', args: [apiKey, newNotifId, title, message] });
+    await db.execute({ sql: 'INSERT INTO notification_history (api_key, notification_id, title, message, status) VALUES (?, ?, ?, ?, 'sent')', args: [apiKey, newNotifId, title, message] });
     const subs = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE api_key = ?', args: [apiKey] });
     let successCount = 0;
     const payload = JSON.stringify({ title, body: message, data: { notification_id: newNotifId } });
