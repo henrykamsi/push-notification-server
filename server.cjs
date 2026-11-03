@@ -616,6 +616,60 @@ app.post('/api/v1/verify-widget', async (req, res) => {
   } catch (e) { return res.status(500).json({ status: 500, success: false, message: '❌ Server Error: ' + e.message }); }
 });
 
+
+// ============================================================
+// RECOVERY CODE VERIFICATION
+// ============================================================
+app.post('/api/v1/auth/verify-recovery', async (req, res) => {
+  const { email, recovery_code } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const deviceName = req.headers['user-agent'] || 'unknown';
+  
+  if (!email || !recovery_code) return res.json({ status: 400, success: false, message: 'Email and recovery code required' });
+  
+  try {
+    // Get user
+    const user = await db.execute({ sql: 'SELECT id, name, email, plan, blocked, recovery_code_hash FROM users WHERE email = ?', args: [email] });
+    if (user.rows.length === 0) return res.json({ status: 404, success: false, message: 'User not found' });
+    
+    const userId = user.rows[0].id;
+    
+    // Check for lockout
+    const pending = await db.execute({ sql: 'SELECT id, attempts, locked_until FROM pending_logins WHERE user_id = ? ORDER BY id DESC LIMIT 1', args: [userId] });
+    if (pending.rows.length > 0) {
+        const p = pending.rows[0];
+        if (p.locked_until && new Date(p.locked_until) > new Date()) {
+            return res.json({ status: 403, locked: true, message: 'Too many wrong attempts. Try again later.' });
+        }
+        if (p.attempts >= 5) {
+            const lockTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+            await db.execute({ sql: 'UPDATE pending_logins SET locked_until = ? WHERE id = ?', args: [lockTime, p.id] });
+            return res.json({ status: 403, locked: true, message: 'Too many wrong attempts. Locked for 1 hour.' });
+        }
+    }
+    
+    // Verify recovery code (hashed)
+    const recoveryHash = crypto.createHash('sha256').update(recovery_code).digest('hex');
+    if (user.rows[0].recovery_code_hash !== recoveryHash) {
+        // Increment attempts
+        if (pending.rows.length > 0) {
+            await db.execute({ sql: 'UPDATE pending_logins SET attempts = attempts + 1 WHERE id = ?', args: [pending.rows[0].id] });
+        }
+        return res.json({ status: 401, success: false, message: 'Invalid recovery code.' });
+    }
+    
+    // Success! Create session, trust IP
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [userId, sessionToken] });
+    await db.execute({ sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name) VALUES (?, ?, ?)', args: [userId, clientIp, deviceName] });
+    await db.execute({ sql: 'DELETE FROM pending_logins WHERE user_id = ?', args: [userId] });
+    await db.execute({ sql: 'UPDATE security_logs SET status = "approved" WHERE user_id = ? AND status = "pending"', args: [userId] });
+    
+    res.json({ status: 200, success: true, message: 'Recovery verified. Logged in.', user_id: userId, name: user.rows[0].name, email: user.rows[0].email, plan: user.rows[0].plan || 'free', session_token: sessionToken });
+    
+  } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
+});
+
 // ============================================================
 // BACKGROUND SCHEDULER (FIXED FOR TURSO UTC)
 // ============================================================
