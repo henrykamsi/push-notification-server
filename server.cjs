@@ -735,6 +735,56 @@ app.get('/api/v1/security/status', async (req, res) => {
   }
 });
 
+
+// ============================================================
+// SECURITY LOGS & APPROVE/DENY ENDPOINTS
+// ============================================================
+app.get('/api/v1/security/logs', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  if (!sessionToken) return res.status(401).json({ success: false, message: 'Session required' });
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    const logs = await db.execute({ sql: 'SELECT id, action, ip_address, device_name, status, created_at FROM security_logs WHERE user_id = ? ORDER BY id DESC LIMIT 20', args: [userRes.rows[0].user_id] });
+    res.json({ success: true, logs: logs.rows });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/v1/security/approve', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  const { log_id } = req.body;
+  if (!sessionToken || !log_id) return res.status(400).json({ success: false, message: 'Missing data' });
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    const log = await db.execute({ sql: 'SELECT user_id, ip_address, device_name FROM security_logs WHERE id = ? AND user_id = ?', args: [log_id, userRes.rows[0].user_id] });
+    if (log.rows.length === 0) return res.status(404).json({ success: false, message: 'Log not found' });
+    
+    await db.execute({ sql: 'UPDATE security_logs SET status = "approved" WHERE id = ?', args: [log_id] });
+    await db.execute({ sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name) VALUES (?, ?, ?)', args: [userRes.rows[0].user_id, log.rows[0].ip_address, log.rows[0].device_name] });
+    await db.execute({ sql: 'UPDATE pending_logins SET status = "approved" WHERE user_id = ? AND ip_address = ?', args: [userRes.rows[0].user_id, log.rows[0].ip_address] });
+    
+    res.json({ success: true, message: 'Approved' });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/v1/security/deny', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  const { log_id } = req.body;
+  if (!sessionToken || !log_id) return res.status(400).json({ success: false, message: 'Missing data' });
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    const log = await db.execute({ sql: 'SELECT user_id, ip_address FROM security_logs WHERE id = ? AND user_id = ?', args: [log_id, userRes.rows[0].user_id] });
+    if (log.rows.length === 0) return res.status(404).json({ success: false, message: 'Log not found' });
+    
+    await db.execute({ sql: 'UPDATE security_logs SET status = "denied" WHERE id = ?', args: [log_id] });
+    await db.execute({ sql: 'DELETE FROM pending_logins WHERE user_id = ? AND ip_address = ?', args: [userRes.rows[0].user_id, log.rows[0].ip_address] });
+    
+    res.json({ success: true, message: 'Denied and blocked' });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // ============================================================
 // BACKGROUND SCHEDULER (FIXED FOR TURSO UTC)
 // ============================================================
