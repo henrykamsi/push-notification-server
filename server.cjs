@@ -126,15 +126,70 @@ app.post('/api/v1/auth/register', async (req, res) => {
 
 app.post('/api/v1/auth/login', async (req, res) => {
   const { email, password } = req.body;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+  const deviceName = req.headers['user-agent'] || 'unknown';
+  
   if (!email || !password) return res.json({ status: 400, success: false, message: 'Email and password required' });
+  
   try {
     const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
-    const user = await db.execute({ sql: 'SELECT id, name, surname, email, plan, blocked FROM users WHERE email = ? AND password_hash = ?', args: [email, passwordHash] });
+    const user = await db.execute({ sql: 'SELECT id, name, surname, email, plan, blocked, security_enabled, security_token FROM users WHERE email = ? AND password_hash = ?', args: [email, passwordHash] });
+    
     if (user.rows.length === 0) return res.json({ status: 401, success: false, message: 'Invalid email or password' });
     if (user.rows[0].blocked === 1) return res.json({ status: 403, success: false, message: 'Account blocked. Contact support.' });
+    
+    const userId = user.rows[0].id;
+    const securityEnabled = user.rows[0].security_enabled === 1;
+    const securityToken = user.rows[0].security_token;
+    
+    // Check if security is enabled
+    if (securityEnabled && securityToken) {
+        // Check if this IP is trusted
+        const trusted = await db.execute({ sql: 'SELECT id FROM trusted_ips WHERE user_id = ? AND ip_address = ?', args: [userId, clientIp] });
+        
+        if (trusted.rows.length === 0) {
+            // NEW IP DETECTED! Pause the login.
+            const pendingId = crypto.randomBytes(16).toString('hex');
+            const sessionToken = crypto.randomBytes(32).toString('hex');
+            
+            await db.execute({ 
+                sql: 'INSERT INTO pending_logins (user_id, ip_address, device_name, session_token, status) VALUES (?, ?, ?, ?, ?)', 
+                args: [userId, clientIp, deviceName, sessionToken, 'pending'] 
+            });
+            
+            // Log the security event
+            await db.execute({ 
+                sql: 'INSERT INTO security_logs (user_id, email, ip_address, device_name, action, status) VALUES (?, ?, ?, ?, ?, ?)', 
+                args: [userId, email, clientIp, deviceName, 'login_attempt', 'pending'] 
+            });
+            
+            // Send push notification to the user's security token
+            try {
+                const userToken = await db.execute({ sql: 'SELECT endpoint, p256dh, auth FROM subscribers WHERE endpoint = ?', args: [securityToken] });
+                // Note: For now, we just return pending. Push notification will be added later.
+            } catch(e) {}
+            
+            return res.json({ 
+                status: 202, 
+                success: false, 
+                pending: true, 
+                message: 'New device detected. Please approve this login on your registered phone.',
+                ip_address: clientIp
+            });
+        }
+    }
+    
+    // Normal login (trusted IP or security disabled)
     const sessionToken = crypto.randomBytes(32).toString('hex');
-    await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [user.rows[0].id, sessionToken] });
-    res.json({ status: 200, success: true, message: 'Login successful', user_id: user.rows[0].id, name: user.rows[0].name, surname: user.rows[0].surname || '', email: user.rows[0].email, plan: user.rows[0].plan || 'free', session_token: sessionToken });
+    await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [userId, sessionToken] });
+    
+    // If security is enabled, save the IP as trusted
+    if (securityEnabled) {
+        await db.execute({ sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name) VALUES (?, ?, ?)', args: [userId, clientIp, deviceName] });
+    }
+    
+    res.json({ status: 200, success: true, message: 'Login successful', user_id: userId, name: user.rows[0].name, surname: user.rows[0].surname || '', email: user.rows[0].email, plan: user.rows[0].plan || 'free', session_token: sessionToken });
+    
   } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
 });
 
