@@ -24,7 +24,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(__dirname));
+// Static serving disabled — website is served from the Sendly repo
 
 // ============================================================
 // 📛 BRAND INFORMATION
@@ -103,7 +103,7 @@ initDB();
 // ============================================================
 // 4. STATIC ROUTES
 // ============================================================
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/', (req, res) => res.json({ status: 200, success: true, message: 'Sendly Notification Server API', docs: '/health' }));
 app.get('/sw.js', (req, res) => { res.setHeader('Content-Type', 'application/javascript'); res.sendFile(path.join(__dirname, 'sw.js')); });
 app.get('/health', (req, res) => res.json({ status: 200, success: true, message: 'Server is healthy' }));
 app.get('/api/v1/vapid-key', (req, res) => res.json({ publicKey: process.env.VAPID_PUBLIC_KEY }));
