@@ -346,6 +346,19 @@ app.get('/api/v1/analytics/notification/:id', async (req, res) => {
 // ============================================================
 app.post('/api/v1/send', async (req, res) => {
   const apiKey = req.headers['x-sendly-key'];
+  
+  // 🛡️ CRACK SIGNAL LOGIC
+  if (apiKey) {
+      try {
+          const keyCheck = await db.execute({ sql: 'SELECT id, crack_signals FROM projects WHERE api_key = ?', args: [apiKey] });
+          if (keyCheck.rows.length === 0) {
+              // Fake key detected
+              console.log("🚨 FAKE API KEY DETECTED:", apiKey.substring(0, 20));
+              // We don't have a project_id to update, so we just log it here.
+              // If you want to track invalid keys globally, we would need a separate table.
+          }
+      } catch(e) {}
+  }
   const { channel, title, message, recipient, image, image_url, icon, icon_url, button1_name, button1_url, button2_name, button2_url, persistent, scheduled_for, custom_sound_url, ab_test_group, subscriber_group } = req.body;
 
   if (!apiKey) return res.status(401).json({ status: 401, error: 'Unauthorized', message: 'API key is missing' });
