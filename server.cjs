@@ -670,6 +670,71 @@ app.post('/api/v1/auth/verify-recovery', async (req, res) => {
   } catch (error) { res.status(500).json({ status: 500, success: false, error: error.message }); }
 });
 
+
+// ============================================================
+// SECURITY ENDPOINTS (ENABLE / DISABLE / STATUS)
+// ============================================================
+app.post('/api/v1/security/enable', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  const { recovery_code } = req.body;
+  
+  if (!sessionToken) return res.status(401).json({ success: false, message: 'Session required' });
+  if (!recovery_code || recovery_code.length !== 6 || !/^\d+$/.test(recovery_code)) {
+      return res.json({ success: false, message: 'Recovery code must be exactly 6 numbers.' });
+  }
+  
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    
+    const userId = userRes.rows[0].user_id;
+    const hash = crypto.createHash('sha256').update(recovery_code).digest('hex');
+    
+    await db.execute({ 
+        sql: 'UPDATE users SET security_enabled = 1, recovery_code_hash = ? WHERE id = ?', 
+        args: [hash, userId] 
+    });
+    
+    res.json({ success: true, message: 'Login alerts enabled successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/v1/security/disable', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  if (!sessionToken) return res.status(401).json({ success: false, message: 'Session required' });
+  
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    
+    await db.execute({ 
+        sql: 'UPDATE users SET security_enabled = 0, recovery_code_hash = NULL WHERE id = ?', 
+        args: [userRes.rows[0].user_id] 
+    });
+    
+    res.json({ success: true, message: 'Login alerts disabled.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/v1/security/status', async (req, res) => {
+  const sessionToken = req.headers['x-session-token'];
+  if (!sessionToken) return res.status(401).json({ success: false, message: 'Session required' });
+  
+  try {
+    const userRes = await db.execute({ sql: 'SELECT user_id FROM sessions WHERE token = ?', args: [sessionToken] });
+    if (userRes.rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid session' });
+    
+    const user = await db.execute({ sql: 'SELECT security_enabled FROM users WHERE id = ?', args: [userRes.rows[0].user_id] });
+    res.json({ enabled: user.rows[0].security_enabled === 1 });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ============================================================
 // BACKGROUND SCHEDULER (FIXED FOR TURSO UTC)
 // ============================================================
