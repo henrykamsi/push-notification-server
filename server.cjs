@@ -145,7 +145,11 @@ app.post('/api/v1/auth/login', async (req, res) => {
     // Check if security is enabled
     if (securityEnabled && securityToken) {
         // Check if this IP is trusted
-        const trusted = await db.execute({ sql: 'SELECT id FROM trusted_ips WHERE user_id = ? AND ip_address = ?', args: [userId, clientIp] });
+        const currentUA = req.headers['user-agent'] || 'unknown';
+        const trusted = await db.execute({ 
+            sql: 'SELECT id FROM trusted_ips WHERE user_id = ? AND ip_address = ? AND user_agent = ?', 
+            args: [userId, clientIp, currentUA] 
+        });
         
         if (trusted.rows.length === 0) {
             // NEW IP DETECTED! Pause the login.
@@ -185,7 +189,10 @@ app.post('/api/v1/auth/login', async (req, res) => {
     
     // If security is enabled, save the IP as trusted
     if (securityEnabled) {
-        await db.execute({ sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name) VALUES (?, ?, ?)', args: [userId, clientIp, deviceName] });
+        await db.execute({ 
+        sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name, user_agent) VALUES (?, ?, ?, ?)', 
+        args: [userId, clientIp, deviceName, req.headers['user-agent'] || 'unknown'] 
+    });
     }
     
     res.json({ status: 200, success: true, message: 'Login successful', user_id: userId, name: user.rows[0].name, surname: user.rows[0].surname || '', email: user.rows[0].email, plan: user.rows[0].plan || 'free', session_token: sessionToken });
@@ -661,7 +668,10 @@ app.post('/api/v1/auth/verify-recovery', async (req, res) => {
     // Success! Create session, trust IP
     const sessionToken = crypto.randomBytes(32).toString('hex');
     await db.execute({ sql: 'INSERT OR REPLACE INTO sessions (user_id, token) VALUES (?, ?)', args: [userId, sessionToken] });
-    await db.execute({ sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name) VALUES (?, ?, ?)', args: [userId, clientIp, deviceName] });
+    await db.execute({ 
+        sql: 'INSERT INTO trusted_ips (user_id, ip_address, device_name, user_agent) VALUES (?, ?, ?, ?)', 
+        args: [userId, clientIp, deviceName, req.headers['user-agent'] || 'unknown'] 
+    });
     await db.execute({ sql: 'DELETE FROM pending_logins WHERE user_id = ?', args: [userId] });
     await db.execute({ sql: 'UPDATE security_logs SET status = "approved" WHERE user_id = ? AND status = "pending"', args: [userId] });
     
